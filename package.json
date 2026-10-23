@@ -8,6 +8,7 @@
     "build": "node scripts/with-db.mjs --memory next build",
     "start": "node scripts/with-db.mjs next start",
     "lint": "eslint",
+    "test": "node scripts/with-db.mjs --isolated tsx --require ./tests/setup/server-only.cjs --test tests/database.test.ts",
     "db:setup": "node scripts/with-db.mjs prisma migrate deploy && node scripts/with-db.mjs prisma db seed",
     "postinstall": "prisma generate",
     "db:migrate": "node scripts/with-db.mjs prisma migrate deploy",

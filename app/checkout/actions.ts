@@ -73,7 +73,7 @@ async function priceLines(raw: PlaceOrderInput["lines"] | undefined): Promise<{ 
       return { ok: false, error: "Please check the quantities in your bag and try again." };
     }
     if (v.stock < quantity) return { ok: false, error: outOfStockMessage(v.name, v.colour, v.size, v.stock) };
-    items.push({ variantId: v.variantId, slug: v.slug, name: v.name, colour: v.colour, size: v.size, unitPrice: v.price, quantity });
+    items.push({ variantId: v.variantId, sku: v.sku, slug: v.slug, name: v.name, colour: v.colour, size: v.size, unitPrice: v.price, quantity });
   }
   return { ok: true, items };
 }

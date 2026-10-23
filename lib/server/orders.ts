@@ -10,6 +10,8 @@ export const ORDER_STATUSES: OrderStatus[] = ["pending_payment", "paid", "cod_co
 
 export type OrderItemInput = {
   variantId: number;
+  /** SKU at the time of purchase, kept on the order line as a snapshot. */
+  sku: string;
   slug: string;
   name: string;
   colour: string;
@@ -97,6 +99,7 @@ export async function createOrder(input: {
         input.items.map((i) => ({
           order_id: id,
           variant_id: i.variantId,
+          sku: i.sku,
           product_slug: i.slug,
           product_name: i.name,
           colour: i.colour,

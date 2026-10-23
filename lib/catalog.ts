@@ -47,6 +47,8 @@ export type Product = {
   care: string[];
   styles: Style[];
   isNew: boolean;
+  /** Hand-picked for featured placements. */
+  featured: boolean;
   campaigns: string[];
   /** ISO date, used for the "Newest" sort. */
   addedOn: string;

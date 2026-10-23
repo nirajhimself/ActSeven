@@ -1,13 +1,21 @@
 /**
- * Seeds sample data. Safe to run repeatedly (`npm run db:seed`):
- * catalogue rows are upserted by slug / name / SKU, and existing stock levels
- * are left alone so a re-seed never wipes real inventory counts.
+ * DEVELOPMENT SAMPLE DATA (`npm run db:seed`). Everything written here comes
+ * from prisma/seed-data.ts and is illustrative, not real product information.
  *
- *   SEED_RESET_STOCK=1     also reset stock to the sample levels
- *   SEED_SAMPLE_ORDERS=1   add sample customers and orders (always on for a
- *                          local database, never on by default elsewhere)
+ * Safe by default:
+ * - Refuses to run against a non-local database unless SEED_ALLOW_REMOTE=1.
+ * - Create-only: categories, products, variants, stock and discounts that
+ *   already exist are left exactly as they are, so real prices, copy, stock
+ *   and admin changes are never overwritten. Re-running adds nothing new.
  *
- * Sample customers use @example.com addresses, which can't receive mail.
+ * Opt-in overrides:
+ *   SEED_UPDATE_CATALOGUE=1  rewrite existing sample products/categories/discounts
+ *                            from seed-data.ts (prices included — dev only)
+ *   SEED_RESET_STOCK=1       reset stock to the sample levels
+ *   SEED_SAMPLE_ORDERS=1     add sample customers and orders (always on for a
+ *                            local database)
+ *
+ * Sample customers use @example.com addresses; sample orders are A7-SAMPLE-….
  */
 import { createHash, randomUUID } from "node:crypto";
 import { PrismaPg } from "@prisma/adapter-pg";
@@ -20,6 +28,19 @@ if (!url || url.includes("YOUR_PASSWORD")) {
   process.exit(1);
 }
 const local = ["localhost", "127.0.0.1"].includes(new URL(url).hostname);
+if (!local && process.env.SEED_ALLOW_REMOTE !== "1") {
+  console.error(
+    [
+      `✗ Refusing to seed sample data into a remote database (${new URL(url).hostname}).`,
+      "  This seed is for development. To fill an empty hosted database with the sample",
+      "  catalogue on purpose, run it with SEED_ALLOW_REMOTE=1 (existing records are never overwritten).",
+    ].join("\n"),
+  );
+  process.exit(1);
+}
+const updateCatalogue = process.env.SEED_UPDATE_CATALOGUE === "1";
+/** Sample products shown in featured placements. */
+const FEATURED = new Set(["navy-two-piece-suit", "camel-wool-blazer", "merino-crew-neck", "olive-field-parka"]);
 const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString: url, ssl: local ? false : { rejectUnauthorized: false } }),
 });
@@ -43,10 +64,10 @@ function sampleStock(sku: string, size: string, colourIndex: number, p: (typeof 
 async function seedCatalogue() {
   for (const [i, c] of categories.entries()) {
     const data = { name: c.name, tagline: c.tagline, imageUrl: c.image.src, imageAlt: c.image.alt, imagePosition: c.image.position ?? null, sortOrder: i };
-    await prisma.category.upsert({ where: { slug: c.slug }, create: { slug: c.slug, ...data }, update: data });
+    await prisma.category.upsert({ where: { slug: c.slug }, create: { slug: c.slug, ...data }, update: updateCatalogue ? data : {} });
   }
   for (const c of Object.values(colours)) {
-    await prisma.colour.upsert({ where: { name: c.name }, create: c, update: { hex: c.hex } });
+    await prisma.colour.upsert({ where: { name: c.name }, create: c, update: updateCatalogue ? { hex: c.hex } : {} });
   }
   for (const { system, labels } of sizeSystems) {
     for (const [i, label] of labels.entries()) {
@@ -64,6 +85,7 @@ async function seedCatalogue() {
   const resetStock = process.env.SEED_RESET_STOCK === "1";
   let variantCount = 0;
   let stockRows = 0;
+  let created = 0;
 
   for (const [i, p] of products.entries()) {
     const system = sizeSystems.find((s) => s.labels === p.sizes)?.system;
@@ -82,11 +104,18 @@ async function seedCatalogue() {
       campaigns: p.campaigns ?? [],
       isNew: Boolean(p.isNew),
       addedOn: new Date(`${p.addedOn}T00:00:00Z`),
+      featured: FEATURED.has(p.slug),
       sortOrder: i,
     };
-    const product = await prisma.product.upsert({ where: { slug: p.slug }, create: { slug: p.slug, ...fields }, update: fields });
+    const existing = await prisma.product.findUnique({ where: { slug: p.slug }, select: { id: true } });
+    if (!existing) created++;
+    // Existing products keep their real content unless explicitly asked to overwrite.
+    const product =
+      existing && !updateCatalogue
+        ? existing
+        : await prisma.product.upsert({ where: { slug: p.slug }, create: { slug: p.slug, ...fields }, update: fields });
 
-    await prisma.$transaction([
+    if (!existing || updateCatalogue) await prisma.$transaction([
       prisma.productColour.deleteMany({ where: { productId: product.id } }),
       prisma.productColour.createMany({
         data: p.colours.map((c, sortOrder) => ({ productId: product.id, colourId: colourIds.get(c.name)!, sortOrder })),
@@ -111,12 +140,12 @@ async function seedCatalogue() {
         const variant = await prisma.variant.upsert({
           where: { sku },
           create: { sku, productId: product.id, colourId: colourIds.get(colour.name)!, sizeId: sizeIds.get(`${system}:${size}`)! },
-          update: { active: true },
+          update: {}, // never re-activate a variant an admin switched off
         });
         variantCount++;
         const quantity = sampleStock(sku, size, ci, p);
-        const existing = await prisma.inventory.findUnique({ where: { variantId: variant.id } });
-        if (!existing) {
+        const stock = await prisma.inventory.findUnique({ where: { variantId: variant.id } });
+        if (!stock) {
           await prisma.inventory.create({ data: { variantId: variant.id, quantity } });
           stockRows++;
         } else if (resetStock) {
@@ -126,7 +155,10 @@ async function seedCatalogue() {
       }
     }
   }
-  console.log(`✓ Catalogue: ${categories.length} categories, ${Object.keys(colours).length} colours, ${products.length} products, ${variantCount} variants (${stockRows} stock levels written)`);
+  console.log(
+    `✓ Catalogue: ${categories.length} categories, ${Object.keys(colours).length} colours, ${products.length} products ` +
+      `(${created} new${updateCatalogue ? ", existing overwritten" : ", existing left unchanged"}), ${variantCount} variants (${stockRows} stock levels written)`,
+  );
 }
 
 async function seedDiscounts() {
@@ -137,7 +169,7 @@ async function seedDiscounts() {
     { code: "TAILOR15", description: "Sample: 15% off tailoring over ₹15,000 (expired)", type: "percentage", value: 15, minSubtotal: 15000, maxDiscount: 5000, usageLimit: 100, startsAt: new Date("2026-03-01T00:00:00+05:30"), endsAt: new Date("2026-04-30T23:59:59+05:30") },
   ];
   for (const d of discounts) {
-    await prisma.discount.upsert({ where: { code: d.code }, create: d, update: d });
+    await prisma.discount.upsert({ where: { code: d.code }, create: d, update: updateCatalogue ? d : {} });
   }
   console.log(`✓ Discounts: ${discounts.map((d) => d.code).join(", ")}`);
 }

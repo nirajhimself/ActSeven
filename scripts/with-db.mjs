@@ -7,7 +7,10 @@
 // migrations are applied, sample data is seeded if the catalogue is empty,
 // and the command runs with DATABASE_URL pointing at it.
 //   default:  data persists in .data/pglite (used by `npm run dev`)
-//   --memory: a throwaway in-memory database (used by `npm run build`)
+//   --memory: a throwaway in-memory database if no DATABASE_URL is set
+//             (used by `npm run build`; a configured database still wins)
+//   --isolated: ALWAYS a fresh in-memory database, ignoring .env.local
+//             (used by tests, so they can never touch a real database)
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { connect, createServer } from "node:net";
@@ -16,7 +19,8 @@ import { fileURLToPath } from "node:url";
 import nextEnv from "@next/env";
 
 const args = process.argv.slice(2);
-const memory = args[0] === "--memory";
+const isolated = args[0] === "--isolated";
+const memory = isolated || args[0] === "--memory";
 const command = memory ? args.slice(1) : args;
 if (command.length === 0) {
   console.error("Usage: node scripts/with-db.mjs [--memory] <command> [args...]");
@@ -72,6 +76,9 @@ const localUrl = (port) => `postgres://postgres:postgres@127.0.0.1:${port}/postg
 const sampleEnv = (port) => ({
   ...process.env,
   DATABASE_URL: localUrl(port),
+  // Migrations use DIRECT_URL: it must point at the local database too, or
+  // Prisma would migrate the real (e.g. Supabase) database from .env.local.
+  DIRECT_URL: localUrl(port),
   // Tells the app it's on sample data, so checkout runs as a labelled test.
   ACT_VII_SAMPLE_DB: process.env.ACT_VII_SAMPLE_DB ?? "1",
 });
@@ -82,7 +89,7 @@ const listening = (port) =>
     sock.on("error", () => resolve(false));
   });
 
-if (configured(process.env.DATABASE_URL)) {
+if (!isolated && configured(process.env.DATABASE_URL)) {
   runToEnd(process.env);
 } else if (!memory && (await listening(LOCAL_PORT))) {
   // e.g. `npm run db:studio` while `npm run dev` is running: share its database
@@ -127,7 +134,10 @@ if (configured(process.env.DATABASE_URL)) {
   };
 
   try {
-    console.log(`▸ Local database on 127.0.0.1:${port} (${memory ? "in memory" : ".data/pglite"}) — no DATABASE_URL in .env.local`);
+    console.log(
+      `▸ Local database on 127.0.0.1:${port} (${memory ? "in memory" : ".data/pglite"})` +
+        (isolated ? " — isolated, .env.local database ignored" : " — no DATABASE_URL in .env.local"),
+    );
     await step("Migrations", "prisma", ["migrate", "deploy"]);
     const { rows } = await pg.query("select count(*)::int as n from products");
     if (rows[0].n === 0) await step("Seeding", "prisma", ["db", "seed"]);
