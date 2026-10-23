@@ -145,6 +145,7 @@ model Variant {
   updatedAt     DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   inventory     Inventory?
   orderItems    OrderItem[]
+  cartItems     CartItem[]
 
   @@unique([productId, colourId, sizeId])
   @@map("variants")
@@ -194,6 +195,7 @@ model Customer {
   sessions  Session[]
   addresses Address[]
   wishlist  WishlistItem[]
+  cartItems CartItem[]
   orders    Order[]
 
   @@map("customers")
@@ -253,6 +255,19 @@ model WishlistItem {
   @@map("wishlist_items")
 }
 
+/** A signed-in customer's bag, so it follows them across devices. Guests' bags stay in the browser. */
+model CartItem {
+  customerId String   @map("customer_id") @db.Uuid
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  variantId  Int      @map("variant_id")
+  variant    Variant  @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  quantity   Int
+  updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@id([customerId, variantId])
+  @@map("cart_items")
+}
+
 // ---------------------------------------------------------------- orders
 
 model Order {
@@ -278,6 +293,8 @@ model Order {
   discountAmount          Int         @default(0) @map("discount_amount")
   total                   Int
   currency                String      @default("INR")
+  /// One per checkout attempt, so a retried submission returns the same order instead of creating another.
+  checkoutToken           String?     @unique @map("checkout_token")
   razorpayOrderId         String?     @unique @map("razorpay_order_id")
   razorpayPaymentId       String?     @map("razorpay_payment_id")
   trackingNumber          String?     @map("tracking_number")

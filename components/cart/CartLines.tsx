@@ -4,8 +4,10 @@ import Image from "next/image";
 import Link from "next/link";
 import { MinusIcon, PlusIcon, TrashIcon } from "@/components/ui/Icons";
 import { removeLine, setQuantity, undoRemove, useLastRemoved, type ResolvedLine } from "@/lib/cart";
+import type { CartCheck } from "@/lib/server/cart";
+import { lineIssue } from "@/lib/use-cart-check";
 import { useCatalog } from "@/components/catalog/CatalogProvider";
-import { findProduct } from "@/lib/catalog";
+import { findProduct, variantPrice } from "@/lib/catalog";
 import { formatINR } from "@/lib/format";
 import { policy } from "@/lib/site";
 
@@ -71,10 +73,13 @@ export function CartLines({
   lines,
   onNavigate,
   size = "drawer",
+  check = null,
 }: {
   lines: ResolvedLine[];
   onNavigate?: () => void;
   size?: "drawer" | "page";
+  /** Live server check of the bag (stock and current prices), when available. */
+  check?: CartCheck | null;
 }) {
   const page = size === "page";
   return (
@@ -142,10 +147,31 @@ export function CartLines({
                 </div>
               </div>
               {atLimit ? <p className="mt-2 text-right text-[0.6875rem] text-taupe">Limit {policy.maxQuantityPerLine} per order</p> : null}
+              <LineIssue line={line} check={check} />
             </div>
           </li>
         );
       })}
     </ul>
+  );
+}
+
+/** Stock / price note under a bag line, from the live server check. */
+export function LineIssue({ line, check }: { line: ResolvedLine; check: CartCheck | null }) {
+  // Compare with the catalogue price the shopper first saw, so a change is called out.
+  const issue = lineIssue(
+    check?.lines.find((l) => l.slug === line.slug && l.colour === line.colour && l.size === line.size),
+    variantPrice(line.product, line.colour, line.size),
+  );
+  if (!issue) return null;
+  return (
+    <p role={issue.blocking ? "alert" : undefined} className={`mt-2 text-[0.6875rem] ${issue.blocking ? "text-[#9b2c1f]" : "text-gold-deep"}`}>
+      {issue.text}
+      {"fixTo" in issue && issue.fixTo ? (
+        <button type="button" onClick={() => setQuantity(line.id, issue.fixTo)} className="ml-2 underline underline-offset-2">
+          Change to {issue.fixTo}
+        </button>
+      ) : null}
+    </p>
   );
 }

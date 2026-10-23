@@ -7,14 +7,18 @@ import { Sheet } from "@/components/ui/Sheet";
 import { cartDrawer, cartTotals, resolveLines, useCart, useCartDrawerOpen } from "@/lib/cart";
 import { useCatalog } from "@/components/catalog/CatalogProvider";
 import { CartLines, RemovedNotice } from "./CartLines";
-import { GiftNote, TestCheckoutNote, TotalsTable } from "./CartSummary";
+import { GiftNote, ReviewBagNote, TestCheckoutNote, TotalsTable } from "./CartSummary";
+import { useCartCheck, withLivePrices } from "@/lib/use-cart-check";
 
 export function CartDrawer({ testCheckout = false }: { testCheckout?: boolean }) {
   const open = useCartDrawerOpen();
   const { lines, giftNote } = useCart();
   const { products } = useCatalog();
   const resolved = useMemo(() => resolveLines(lines, products), [lines, products]);
-  const totals = cartTotals(resolved);
+  const baseTotals = cartTotals(resolved);
+  const check = useCartCheck(open ? lines : []);
+  // Server-priced totals once the live check passes; catalogue figures until then.
+  const totals = check && !check.blocking ? { ...check.totals, count: baseTotals.count } : baseTotals;
 
   return (
     <Sheet open={open} onClose={cartDrawer.close} side="right" labelledBy="cart-title">
@@ -43,13 +47,14 @@ export function CartDrawer({ testCheckout = false }: { testCheckout?: boolean })
         ) : (
           <>
             <div className="flex-1 overflow-y-auto px-6">
-              <CartLines lines={resolved} onNavigate={cartDrawer.close} />
+              <CartLines lines={withLivePrices(resolved, check)} onNavigate={cartDrawer.close} check={check} />
               <div className="pb-6">
                 <GiftNote value={giftNote} />
               </div>
             </div>
             <div className="space-y-4 border-t border-obsidian/10 px-6 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
               <TotalsTable totals={totals} compact />
+              {check?.blocking ? <ReviewBagNote /> : null}
               <div className="grid grid-cols-[3fr_2fr] gap-3">
                 <ButtonLink href="/checkout" onClick={cartDrawer.close} className="w-full px-3">
                   {testCheckout ? "Test checkout" : "Checkout"}

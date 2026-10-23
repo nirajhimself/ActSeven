@@ -65,7 +65,7 @@ export function createStore<T>(initial: T, opts?: { key: string; validate: (v: u
     return useSyncExternalStore(subscribe, get, () => initial);
   }
 
-  return { get, set, useValue };
+  return { get, set, useValue, subscribe };
 }
 
 const noopSubscribe = () => () => {};

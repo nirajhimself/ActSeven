@@ -7,14 +7,18 @@ import { formatINR } from "@/lib/format";
 import { useHydrated } from "@/lib/store";
 import { useCatalog } from "@/components/catalog/CatalogProvider";
 import { CartLines, RemovedNotice } from "./CartLines";
-import { GiftNote, TestCheckoutNote, TotalsTable } from "./CartSummary";
+import { GiftNote, ReviewBagNote, TestCheckoutNote, TotalsTable } from "./CartSummary";
+import { useCartCheck, withLivePrices } from "@/lib/use-cart-check";
 
 export function CartPageView({ testCheckout = false }: { testCheckout?: boolean }) {
   const hydrated = useHydrated();
   const { lines, giftNote } = useCart();
   const { products } = useCatalog();
   const resolved = useMemo(() => resolveLines(lines, products), [lines, products]);
-  const totals = cartTotals(resolved);
+  const baseTotals = cartTotals(resolved);
+  const check = useCartCheck(lines);
+  // Server-priced totals once the live check passes; catalogue figures until then.
+  const totals = check && !check.blocking ? { ...check.totals, count: baseTotals.count } : baseTotals;
   const checkoutLabel = testCheckout ? "Test checkout" : "Checkout";
 
   // The bag lives in localStorage: wait for it rather than flashing "empty".
@@ -49,7 +53,7 @@ export function CartPageView({ testCheckout = false }: { testCheckout?: boolean 
           </h2>
           <RemovedNotice />
           <div className="mt-4 border-t border-obsidian/10">
-            <CartLines lines={resolved} size="page" />
+            <CartLines lines={withLivePrices(resolved, check)} size="page" check={check} />
           </div>
         </section>
 
@@ -58,6 +62,7 @@ export function CartPageView({ testCheckout = false }: { testCheckout?: boolean 
             Order summary
           </h2>
           <TotalsTable totals={totals} />
+          {check?.blocking ? <ReviewBagNote /> : null}
           <GiftNote value={giftNote} />
           <ButtonLink href="/checkout" className="w-full">
             {checkoutLabel}

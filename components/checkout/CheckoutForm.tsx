@@ -6,7 +6,10 @@ import { useRouter } from "next/navigation";
 import { useEffect, useId, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { getCheckoutPrefillAction } from "@/app/account/actions";
 import { confirmRazorpayPayment, placeOrder, placeTestOrder, type CheckoutFields } from "@/app/checkout/actions";
+import { LineIssue } from "@/components/cart/CartLines";
+import { ReviewBagNote } from "@/components/cart/CartSummary";
 import { useCatalog } from "@/components/catalog/CatalogProvider";
+import { useCartCheck, withLivePrices } from "@/lib/use-cart-check";
 import { ButtonLink } from "@/components/ui/Button";
 import { ArrowRightIcon, ShieldIcon } from "@/components/ui/Icons";
 import { clearCart, resolveLines, useCart } from "@/lib/cart";
@@ -38,6 +41,37 @@ function loadRazorpay(): Promise<boolean> {
     s.onerror = () => resolve(false);
     document.body.appendChild(s);
   });
+}
+
+const ATTEMPT_KEY = "act-vii:checkout-attempt";
+
+/**
+ * Idempotency token for placing this order: a random id kept for the browser
+ * session plus a fingerprint of the bag and payment method. Retrying the same
+ * order reuses the token (so the server returns the order it already made);
+ * changing the bag gives a new one.
+ */
+function checkoutToken(lines: { slug: string; colour: string; size: string; quantity: number }[], method: PaymentMethod) {
+  let base = "";
+  try {
+    base = sessionStorage.getItem(ATTEMPT_KEY) ?? "";
+    if (!base) sessionStorage.setItem(ATTEMPT_KEY, (base = crypto.randomUUID().replace(/-/g, "")));
+  } catch {
+    base = crypto.randomUUID().replace(/-/g, "");
+  }
+  const fingerprint = JSON.stringify([method, lines.map((l) => [l.slug, l.colour, l.size, l.quantity])]);
+  let hash = 2166136261; // FNV-1a
+  for (let i = 0; i < fingerprint.length; i++) hash = Math.imul(hash ^ fingerprint.charCodeAt(i), 16777619) >>> 0;
+  return `${base}-${hash.toString(36)}`;
+}
+
+/** After an order is placed, the next checkout starts a fresh attempt. */
+function forgetCheckoutAttempt() {
+  try {
+    sessionStorage.removeItem(ATTEMPT_KEY);
+  } catch {
+    // storage unavailable
+  }
 }
 
 type FieldErrors = Partial<Record<keyof CheckoutFields, string>>;
@@ -93,7 +127,11 @@ export function CheckoutForm({ razorpayEnabled, testMode = false }: { razorpayEn
   const [chosen, setChosen] = useState<PaymentMethod | null>(null);
   // Test orders are priced like online payments (no COD fee).
   const method: PaymentMethod = testMode ? "razorpay" : (chosen ?? (razorpayEnabled ? "razorpay" : "cod"));
-  const totals = computeTotals(subtotal, method);
+  const [recheck, setRecheck] = useState(0);
+  const check = useCartCheck(lines, testMode ? undefined : method, recheck);
+  // Once the live server check passes, show its prices; until then, the catalogue's.
+  const totals = check && !check.blocking ? check.totals : computeTotals(subtotal, method);
+  const needsReview = Boolean(check?.blocking);
 
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -135,6 +173,7 @@ export function CheckoutForm({ razorpayEnabled, testMode = false }: { razorpayEn
 
   const finish = (orderId: string) => {
     setRedirecting(true);
+    forgetCheckoutAttempt();
     clearCart();
     router.push(`/orders/${orderId}`);
   };
@@ -179,9 +218,15 @@ export function CheckoutForm({ razorpayEnabled, testMode = false }: { razorpayEn
         method,
         giftNote,
         lines: lines.map(({ slug, colour, size, quantity }) => ({ slug, colour, size, quantity })),
+        checkoutToken: checkoutToken(lines, method),
+        expectedTotal: totals.total,
       });
 
-      if (!result.ok) return showErrors(result);
+      if (!result.ok) {
+        // Refresh the summary so the shopper sees (and can accept) the new total.
+        if (result.code === "PRICE_CHANGED") setRecheck((n) => n + 1);
+        return showErrors(result);
+      }
       if (result.method === "cod") {
         finish(result.orderId);
         return;
@@ -374,7 +419,7 @@ export function CheckoutForm({ razorpayEnabled, testMode = false }: { razorpayEn
         <div className="space-y-4">
           <button
             type="submit"
-            disabled={busy || (!testMode && (method === "razorpay" ? !razorpayEnabled : !codOk))}
+            disabled={busy || needsReview || (!testMode && (method === "razorpay" ? !razorpayEnabled : !codOk))}
             className="label inline-flex min-h-13 w-full items-center justify-center gap-3 bg-obsidian px-6 py-4 text-ivory transition-colors hover:bg-graphite disabled:cursor-not-allowed disabled:opacity-45"
           >
             {busy
@@ -386,6 +431,7 @@ export function CheckoutForm({ razorpayEnabled, testMode = false }: { razorpayEn
                   : `Pay ${formatINR(totals.total)}`}
             {!busy ? <ArrowRightIcon className="size-3.5" /> : null}
           </button>
+          {needsReview ? <ReviewBagNote /> : null}
           <p className="flex items-start gap-2 text-xs leading-relaxed text-taupe">
             <ShieldIcon className="mt-0.5 size-4 shrink-0" />
             <span>
@@ -409,7 +455,7 @@ export function CheckoutForm({ razorpayEnabled, testMode = false }: { razorpayEn
             Order summary
           </h2>
           <ul className="mt-4 divide-y divide-obsidian/10">
-            {resolved.map((line) => (
+            {withLivePrices(resolved, check).map((line) => (
               <li key={line.id} className="flex gap-3 py-3">
                 <div className="relative aspect-[4/5] w-14 shrink-0 overflow-hidden bg-bone">
                   <Image src={line.product.images[0].src} alt="" fill sizes="56px" className="photo-grade object-cover" style={{ objectPosition: line.product.images[0].position }} />
@@ -420,6 +466,7 @@ export function CheckoutForm({ razorpayEnabled, testMode = false }: { razorpayEn
                   <p className="text-xs text-taupe">
                     {line.colour} / {line.size}
                   </p>
+                  <LineIssue line={line} check={check} />
                 </div>
                 <p className="text-sm tabular-nums">{formatINR(line.lineTotal)}</p>
               </li>

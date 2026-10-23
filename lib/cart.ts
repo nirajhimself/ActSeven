@@ -85,6 +85,25 @@ export function undoRemove() {
   dismissRemoved();
 }
 
+/** The bag right now (for syncing). */
+export const getCartSnapshot = () => cart.get();
+
+/** Calls `listener` on every bag change (including other tabs); returns an unsubscribe function. */
+export const subscribeCart = (listener: () => void) => cart.subscribe(listener);
+
+/** Replaces the bag's lines (e.g. with the account bag after a sync), keeping the gift note. */
+export function replaceCartLines(lines: Omit<CartLine, "id">[]) {
+  cart.set((s) => ({
+    ...s,
+    lines: lines.map((l) => ({ ...l, id: `${l.slug}__${l.colour}__${l.size}`, quantity: clampQty(l.quantity) })),
+  }));
+}
+
+/** Window event fired when the shopper signs in or out, so the bag can sync. */
+export const ACCOUNT_EVENT = "act-vii:account";
+export const announceAccountChange = (signedIn: boolean) =>
+  window.dispatchEvent(new CustomEvent(ACCOUNT_EVENT, { detail: { signedIn } }));
+
 export function clearCart() {
   cart.set(() => ({ lines: [], giftNote: "" }));
   dismissRemoved();

@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState, useTransition } from "react";
 import { requestLoginCodeAction, verifyLoginCodeAction } from "@/app/account/actions";
 import { ArrowRightIcon } from "@/components/ui/Icons";
+import { announceAccountChange } from "@/lib/cart";
 
 const input =
   "block min-h-12 w-full border border-obsidian/20 bg-ivory px-3.5 text-sm outline-none focus:border-obsidian aria-invalid:border-[#9b2c1f]";
@@ -45,7 +46,9 @@ export function SignInForm() {
       setError(null);
       const res = await verifyLoginCodeAction(email, code);
       if (!res.ok) setError(res.error);
-      // On success the action refreshes the page into the signed-in view.
+      // On success the action refreshes the page into the signed-in view;
+      // tell the bag to merge with the account's saved bag.
+      else announceAccountChange(true);
     });
 
   return (

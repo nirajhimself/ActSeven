@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Cormorant_Garamond, Jost } from "next/font/google";
 import { CartDrawer } from "@/components/cart/CartDrawer";
+import { CartSync } from "@/components/cart/CartSync";
 import { CatalogProvider } from "@/components/catalog/CatalogProvider";
 import { AnnouncementBar } from "@/components/layout/AnnouncementBar";
 import { Footer } from "@/components/layout/Footer";
@@ -59,6 +60,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
           </main>
           <Footer categories={catalog.categories} />
           <CartDrawer testCheckout={isSampleDatabase()} />
+          <CartSync />
         </CatalogProvider>
       </body>
     </html>

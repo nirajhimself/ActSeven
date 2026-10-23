@@ -10,6 +10,7 @@ import {
   updateProfileAction,
 } from "@/app/account/actions";
 import type { AddressFields } from "@/lib/address-validation";
+import { announceAccountChange } from "@/lib/cart";
 import { indianStates, PHONE_PATTERN, PINCODE_PATTERN } from "@/lib/india";
 import type { Address } from "@/lib/server/customers";
 import { getWishlistSnapshot, replaceWishlist } from "@/lib/wishlist";
@@ -38,7 +39,10 @@ export function WishlistSync() {
 export function SignOutButton() {
   const [pending, startTransition] = useTransition();
   return (
-    <button type="button" disabled={pending} onClick={() => startTransition(() => signOutAction())} className="label min-h-11 border border-obsidian/40 px-5 hover:bg-obsidian hover:text-ivory disabled:opacity-50">
+    <button type="button" disabled={pending} onClick={() => startTransition(async () => {
+        await signOutAction();
+        announceAccountChange(false);
+      })} className="label min-h-11 border border-obsidian/40 px-5 hover:bg-obsidian hover:text-ivory disabled:opacity-50">
       {pending ? "Signing out…" : "Sign out"}
     </button>
   );

@@ -60,13 +60,24 @@ export type Order = {
   items: { id: string; productSlug: string; productName: string; colour: string; size: string; unitPrice: number; quantity: number }[];
 };
 
-/** Human-friendly order number, e.g. A7-261022-K4QZ (no ambiguous characters). */
-function orderNumber(now: Date) {
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
+/**
+ * Human-friendly order number, e.g. A7-261022-K4QZ: the date in India (IST),
+ * then 4 characters with no ambiguous letters or digits.
+ */
+export function orderNumber(now: Date) {
   const alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
   const suffix = [...randomBytes(4)].map((b) => alphabet[b % alphabet.length]).join("");
-  const ymd = now.toISOString().slice(2, 10).replace(/-/g, "");
+  const ymd = new Date(now.getTime() + IST_OFFSET_MS).toISOString().slice(2, 10).replace(/-/g, "");
   return `A7-${ymd}-${suffix}`;
 }
+
+const isUniqueViolation = (err: unknown, constraint: string) =>
+  (err as { code?: string; constraint_name?: string })?.code === "23505" && (err as { constraint_name?: string }).constraint_name === constraint;
+
+/** Thrown when an order with the same checkout token already exists (a retried submission). */
+export class DuplicateCheckoutError extends Error {}
 
 export async function createOrder(input: {
   customer: CustomerInput;
@@ -74,21 +85,34 @@ export async function createOrder(input: {
   method: PaymentMethod;
   totals: { subtotal: number; shipping: number; codFee: number; total: number };
   customerId?: string | null;
-}) {
+  /** One per checkout attempt; a second order with the same token is refused. */
+  checkoutToken?: string | null;
+}): Promise<{ id: string; number: string; status: OrderStatus }> {
+  // A clash on the random part of the order number is very unlikely; retry a few times if it happens.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await insertOrder(input, orderNumber(new Date()));
+    } catch (err) {
+      if (isUniqueViolation(err, "orders_checkout_token_key")) throw new DuplicateCheckoutError("Order already placed for this checkout");
+      if (!isUniqueViolation(err, "orders_number_key") || attempt >= 4) throw err;
+    }
+  }
+}
+
+async function insertOrder(input: Parameters<typeof createOrder>[0], number: string) {
   const sql = db();
   const id = randomUUID();
-  const number = orderNumber(new Date());
   const status: OrderStatus = input.method === "cod" ? "cod_confirmed" : "pending_payment";
   const c = input.customer;
 
   await sql.begin(async (tx) => {
     await tx`
       insert into orders (id, number, status, payment_method, email, phone, name, address1, address2, city, state, pincode,
-                          gift_note, subtotal, shipping, cod_fee, total, customer_id, stock_reserved)
+                          gift_note, subtotal, shipping, cod_fee, total, customer_id, stock_reserved, checkout_token)
       values (${id}, ${number}, ${status}, ${input.method}, ${c.email}, ${c.phone}, ${c.name}, ${c.address1},
               ${c.address2 || null}, ${c.city}, ${c.state}, ${c.pincode}, ${c.giftNote || null},
               ${input.totals.subtotal}, ${input.totals.shipping}, ${input.totals.codFee}, ${input.totals.total},
-              ${input.customerId ?? null}, true)`;
+              ${input.customerId ?? null}, true, ${input.checkoutToken ?? null})`;
     // Throws OutOfStockError (rolling back the whole order) if a variant ran out.
     await reserveStock(
       tx,
@@ -115,6 +139,25 @@ export async function createOrder(input: {
   });
 
   return { id, number, status };
+}
+
+/** The order already created by a checkout attempt, if any (for idempotent retries). */
+export async function findOrderByCheckoutToken(token: string) {
+  const [row] = await db()`
+    select id, status, payment_method, total, razorpay_order_id, name, email, phone
+      from orders where checkout_token = ${token}`;
+  return row
+    ? {
+        id: row.id as string,
+        status: row.status as OrderStatus,
+        paymentMethod: row.payment_method as PaymentMethod,
+        total: row.total as number,
+        razorpayOrderId: row.razorpay_order_id as string | null,
+        name: row.name as string,
+        email: row.email as string,
+        phone: row.phone as string,
+      }
+    : null;
 }
 
 export async function attachRazorpayOrder(orderId: string, razorpayOrderId: string) {

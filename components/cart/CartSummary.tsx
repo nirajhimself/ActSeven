@@ -65,3 +65,12 @@ export function TestCheckoutNote({ className = "" }: { className?: string }) {
     </p>
   );
 }
+
+/** Shown above checkout buttons when a bag line needs attention. */
+export function ReviewBagNote() {
+  return (
+    <p role="status" className="text-xs text-[#9b2c1f]">
+      Please review the items marked above before checking out.
+    </p>
+  );
+}

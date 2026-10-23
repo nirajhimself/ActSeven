@@ -11,7 +11,16 @@ import { CATALOG_TAG, getCheckoutVariants, type CheckoutVariant } from "@/lib/se
 import { isDatabaseConfigured, isSampleDatabase } from "@/lib/server/db";
 import { expireStalePendingOrders, OutOfStockError } from "@/lib/server/inventory";
 import { sendOrderConfirmation } from "@/lib/server/email";
-import { attachRazorpayOrder, createOrder, markOrderPaid, releaseUnpaidOrder, type OrderItemInput } from "@/lib/server/orders";
+import {
+  attachRazorpayOrder,
+  createOrder,
+  DuplicateCheckoutError,
+  findOrderByCheckoutToken,
+  markOrderPaid,
+  releaseUnpaidOrder,
+  type OrderItemInput,
+} from "@/lib/server/orders";
+import { clearCustomerCart } from "@/lib/server/cart";
 import { createRazorpayOrder, isRazorpayConfigured, razorpayKeyId, verifyPaymentSignature } from "@/lib/server/razorpay";
 import { policy } from "@/lib/site";
 
@@ -31,10 +40,14 @@ export type PlaceOrderInput = {
   method: PaymentMethod;
   giftNote: string;
   lines: { slug: string; colour: string; size: string; quantity: number }[];
+  /** Random id for this checkout attempt; a retry with the same token returns the same order. */
+  checkoutToken?: string;
+  /** The total the shopper was shown. If the server's total differs, nothing is placed. */
+  expectedTotal?: number;
 };
 
 export type PlaceOrderResult =
-  | { ok: false; error: string; fieldErrors?: Partial<Record<keyof CheckoutFields, string>> }
+  | { ok: false; error: string; code?: "PRICE_CHANGED"; fieldErrors?: Partial<Record<keyof CheckoutFields, string>> }
   | { ok: true; method: "cod"; orderId: string }
   | {
       ok: true;
@@ -130,6 +143,32 @@ export async function placeTestOrder(
   };
 }
 
+/**
+ * Result for a checkout attempt that already created an order (a retried or
+ * double submission). Online orders still awaiting payment reopen the same
+ * Razorpay order; anything else just goes to the order page.
+ */
+function resumeExistingOrder(existing: NonNullable<Awaited<ReturnType<typeof findOrderByCheckoutToken>>>): PlaceOrderResult {
+  if (existing.paymentMethod === "razorpay" && existing.status === "pending_payment" && existing.razorpayOrderId) {
+    return {
+      ok: true,
+      method: "razorpay",
+      orderId: existing.id,
+      razorpay: {
+        keyId: razorpayKeyId(),
+        orderId: existing.razorpayOrderId,
+        amount: existing.total * 100,
+        currency: "INR",
+        prefill: { name: existing.name, email: existing.email, contact: existing.phone },
+      },
+    };
+  }
+  if (existing.paymentMethod === "razorpay" && existing.status !== "paid") {
+    return { ok: false, error: "This checkout couldn't be completed. Please refresh the page and try again." };
+  }
+  return { ok: true, method: "cod", orderId: existing.id };
+}
+
 export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResult> {
   if (!isDatabaseConfigured()) {
     return { ok: false, error: "Ordering isn't available yet — the store database hasn't been connected." };
@@ -141,12 +180,28 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
     return { ok: false, error: "Please check the highlighted fields.", fieldErrors: errors };
   }
 
+  // A retried submission of a checkout that already created an order gets that order back.
+  const checkoutToken = typeof input.checkoutToken === "string" && /^[A-Za-z0-9_-]{16,100}$/.test(input.checkoutToken) ? input.checkoutToken : null;
+  if (checkoutToken) {
+    const existing = await findOrderByCheckoutToken(checkoutToken);
+    if (existing) return resumeExistingOrder(existing);
+  }
+
   const priced = await priceLines(input?.lines);
   if (!priced.ok) return priced;
   const items = priced.items;
 
   const subtotal = items.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
   const totals = computeTotals(subtotal, method);
+
+  // Never charge a total the shopper didn't see (e.g. a price changed after the page loaded).
+  if (typeof input.expectedTotal === "number" && input.expectedTotal !== totals.total) {
+    return {
+      ok: false,
+      code: "PRICE_CHANGED",
+      error: "Prices or availability changed while you were checking out. We've updated your order summary. Please review the new total and place your order again.",
+    };
+  }
 
   if (method === "cod" && !codAvailable(totals.total)) {
     return { ok: false, error: "Cash on delivery isn't available for this order value. Please pay online." };
@@ -165,6 +220,7 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
       method,
       totals,
       customerId: account?.id,
+      checkoutToken,
     });
     // Stock changed: refresh cached availability on listings (stale-while-revalidate).
     revalidateTag(CATALOG_TAG, "max");
@@ -181,6 +237,8 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
 
     if (method === "cod") {
       after(() => sendOrderConfirmation(order.id));
+      // The order is placed: empty the bag saved on the account too.
+      if (account) after(() => clearCustomerCart(account.id).catch(() => {}));
       return { ok: true, method: "cod", orderId: order.id };
     }
 
@@ -206,6 +264,11 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
       },
     };
   } catch (err) {
+    // Two submissions of the same checkout raced; return the one that won.
+    if (err instanceof DuplicateCheckoutError && checkoutToken) {
+      const existing = await findOrderByCheckoutToken(checkoutToken);
+      if (existing) return resumeExistingOrder(existing);
+    }
     if (err instanceof OutOfStockError) {
       const item = items.find((i) => i.slug === err.slug && i.colour === err.colour && i.size === err.size);
       return { ok: false, error: outOfStockMessage(item?.name ?? "An item in your bag", err.colour, err.size, err.available) };
@@ -229,7 +292,11 @@ export async function confirmRazorpayPayment(input: {
   if (!verifyPaymentSignature(razorpayOrderId, paymentId, signature)) return { ok: false };
   try {
     const paidId = await markOrderPaid({ orderId, razorpayOrderId }, paymentId);
-    if (paidId) after(() => sendOrderConfirmation(paidId));
+    if (paidId) {
+      after(() => sendOrderConfirmation(paidId));
+      const account = await getCurrentCustomer().catch(() => null);
+      if (account) after(() => clearCustomerCart(account.id).catch(() => {}));
+    }
     return { ok: Boolean(paidId) };
   } catch (err) {
     console.error("[checkout] confirmRazorpayPayment failed", err);
