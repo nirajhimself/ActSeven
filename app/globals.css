@@ -1,26 +1,203 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/*
+ * ACT VII design tokens.
+ * Contrast notes: taupe on ivory 5.1:1, taupe-light on obsidian 7.2:1,
+ * gold on obsidian 6.4:1, gold-deep on ivory 4.6:1.
+ */
+@theme {
+  --color-obsidian: #0d0c0a;
+  --color-ink: #191714;
+  --color-graphite: #2a2622;
+  --color-ivory: #f5f0e7;
+  --color-bone: #ebe4d7;
+  --color-sand: #d9cfbf;
+  --color-taupe: #6e655a;
+  --color-taupe-light: #a99d8d;
+  --color-gold: #b9945e;
+  --color-gold-deep: #85663a;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+  --font-display: var(--font-cormorant), "Times New Roman", serif;
+  --font-sans: var(--font-jost), ui-sans-serif, system-ui, sans-serif;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  --breakpoint-xs: 26rem;
+
+  --animate-progress: progress var(--slide-duration, 7s) linear forwards;
+
+  @keyframes progress {
+    from {
+      transform: scaleX(0);
+    }
+    to {
+      transform: scaleX(1);
+    }
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background: var(--color-ivory);
+    color: var(--color-obsidian);
+    font-family: var(--font-sans);
+    font-weight: 400;
+  }
+
+  :focus-visible {
+    outline: 1px solid currentColor;
+    outline-offset: 3px;
+  }
+
+  ::selection {
+    background: var(--color-gold);
+    color: var(--color-obsidian);
+  }
+
+  /* Lock page scroll while any modal dialog (drawer, menu, search) is open. */
+  html:has(dialog[open]:modal) {
+    overflow: hidden;
+  }
+
+  input,
+  select,
+  textarea,
+  button {
+    font: inherit;
+  }
+}
+
+/* Small uppercase label used for nav, eyebrows and buttons. */
+@utility label {
+    font-size: 0.6875rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    font-weight: 450;
+}
+
+@utility eyebrow {
+    font-size: 0.6875rem;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: var(--color-taupe);
+}
+
+@utility display {
+    font-family: var(--font-display);
+    font-weight: 400;
+    letter-spacing: -0.01em;
+    line-height: 0.98;
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@layer components {
+  /*
+   * Shared colour grade that pulls the mixed placeholder photography towards
+   * one warm, low-contrast editorial look.
+   */
+  .photo-grade {
+    filter: sepia(0.22) saturate(0.78) contrast(1.06) brightness(0.93);
+  }
+
+  .shell {
+    margin-inline: auto;
+    width: 100%;
+    max-width: 90rem;
+    padding-inline: 1.25rem;
+  }
+  @media (width >= 48rem) {
+    .shell {
+      padding-inline: 2rem;
+    }
+  }
+  @media (width >= 80rem) {
+    .shell {
+      padding-inline: 3.5rem;
+    }
+  }
+
+  /* Native <dialog> used as side sheets (cart, menu, filters). */
+  dialog.sheet {
+    margin: 0;
+    max-width: 100vw;
+    max-height: 100dvh;
+    height: 100dvh;
+    padding: 0;
+    inset-block: 0;
+  }
+  dialog.sheet-right {
+    margin-left: auto;
+    width: min(26.5rem, 100vw);
+  }
+  dialog.sheet-left {
+    margin-right: auto;
+    width: min(22rem, 92vw);
+  }
+  dialog.sheet::backdrop,
+  dialog.modal::backdrop {
+    background: rgb(13 12 10 / 0.55);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    dialog.sheet {
+      transition:
+        translate 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+        display 0.4s allow-discrete,
+        overlay 0.4s allow-discrete;
+    }
+    dialog.sheet-right:not([open]) {
+      translate: 100% 0;
+    }
+    dialog.sheet-left:not([open]) {
+      translate: -100% 0;
+    }
+    @starting-style {
+      dialog.sheet-right[open] {
+        translate: 100% 0;
+      }
+      dialog.sheet-left[open] {
+        translate: -100% 0;
+      }
+    }
+    dialog.sheet::backdrop,
+    dialog.modal::backdrop {
+      transition:
+        opacity 0.4s,
+        display 0.4s allow-discrete,
+        overlay 0.4s allow-discrete;
+      opacity: 0;
+    }
+    dialog.sheet[open]::backdrop,
+    dialog.modal[open]::backdrop {
+      opacity: 1;
+    }
+    @starting-style {
+      dialog.sheet[open]::backdrop,
+      dialog.modal[open]::backdrop {
+        opacity: 0;
+      }
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

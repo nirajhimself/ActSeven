@@ -1,0 +1,386 @@
+// ACT VII database schema. Prisma owns the schema and its migrations
+// (prisma/migrations). Amounts are whole rupees (INR, GST inclusive).
+//
+// Status columns are plain text guarded by CHECK constraints, and a few
+// partial unique indexes exist — Prisma's schema language can't express
+// either, so they live in the migration SQL. If `prisma migrate dev` ever
+// proposes dropping them, edit the generated migration to keep them.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // Migrations need a direct/session connection (Supabase: port 5432), not
+  // the transaction pooler the app uses. Defaults to DATABASE_URL.
+  directUrl = env("DIRECT_URL")
+}
+
+// ---------------------------------------------------------------- catalogue
+
+model Category {
+  id            Int       @id @default(autoincrement())
+  slug          String    @unique
+  name          String
+  tagline       String
+  imageUrl      String    @map("image_url")
+  imageAlt      String    @map("image_alt")
+  imagePosition String?   @map("image_position")
+  sortOrder     Int       @default(0) @map("sort_order")
+  products      Product[]
+
+  @@map("categories")
+}
+
+model Colour {
+  id        Int             @id @default(autoincrement())
+  name      String          @unique
+  hex       String
+  products  ProductColour[]
+  variants  Variant[]
+  images    ProductImage[]
+
+  @@map("colours")
+}
+
+/// A size label within a size system ("tops": XS–XXL, "waist": 28–38, "chest": 36–46).
+model Size {
+  id        Int       @id @default(autoincrement())
+  system    String
+  label     String
+  sortOrder Int       @map("sort_order")
+  variants  Variant[]
+
+  @@unique([system, label])
+  @@map("sizes")
+}
+
+model Product {
+  id          Int             @id @default(autoincrement())
+  slug        String          @unique
+  name        String
+  categoryId  Int             @map("category_id")
+  category    Category        @relation(fields: [categoryId], references: [id])
+  /// Base price; a variant may override it.
+  price       Int
+  summary     String
+  description String
+  highlights  String[]
+  fabric      String
+  fit         String
+  care        String[]
+  /// formal | casual | tailored | relaxed
+  styles      String[]
+  /// Merchandising tags, e.g. winter-edit, tailoring.
+  campaigns   String[]
+  isNew       Boolean         @default(false) @map("is_new")
+  /// active | draft | archived — only active products are shown.
+  status      String          @default("active")
+  addedOn     DateTime        @map("added_on") @db.Date
+  sortOrder   Int             @default(0) @map("sort_order")
+  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  colours     ProductColour[]
+  images      ProductImage[]
+  variants    Variant[]
+
+  @@index([categoryId])
+  @@map("products")
+}
+
+/// The colours a product comes in, in display order.
+model ProductColour {
+  productId Int     @map("product_id")
+  colourId  Int     @map("colour_id")
+  sortOrder Int     @default(0) @map("sort_order")
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  colour    Colour  @relation(fields: [colourId], references: [id])
+
+  @@id([productId, colourId])
+  @@map("product_colours")
+}
+
+model ProductImage {
+  id        Int      @id @default(autoincrement())
+  productId Int      @map("product_id")
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  /// Optional: the colourway this photo shows.
+  colourId  Int?     @map("colour_id")
+  colour    Colour?  @relation(fields: [colourId], references: [id])
+  url       String
+  alt       String
+  /// CSS object-position focal point for cropping, e.g. "50% 20%".
+  position  String?
+  sortOrder Int      @default(0) @map("sort_order")
+
+  @@index([productId])
+  @@map("product_images")
+}
+
+/// A purchasable unit: one product in one colour and size.
+model Variant {
+  id            Int         @id @default(autoincrement())
+  productId     Int         @map("product_id")
+  product       Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  colourId      Int         @map("colour_id")
+  colour        Colour      @relation(fields: [colourId], references: [id])
+  sizeId        Int         @map("size_id")
+  size          Size        @relation(fields: [sizeId], references: [id])
+  sku           String      @unique
+  priceOverride Int?        @map("price_override")
+  active        Boolean     @default(true)
+  inventory     Inventory?
+  orderItems    OrderItem[]
+
+  @@unique([productId, colourId, sizeId])
+  @@map("variants")
+}
+
+model Inventory {
+  variantId         Int      @id @map("variant_id")
+  variant           Variant  @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  quantity          Int
+  lowStockThreshold Int      @default(3) @map("low_stock_threshold")
+  updatedAt         DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("inventory")
+}
+
+model Discount {
+  id          Int       @id @default(autoincrement())
+  /// Stored upper-case; codes are matched case-insensitively.
+  code        String    @unique
+  description String
+  /// percentage | fixed
+  type        String
+  /// Percent (1–100) or rupees, depending on type.
+  value       Int
+  minSubtotal Int       @default(0) @map("min_subtotal")
+  /// Cap for percentage discounts, in rupees.
+  maxDiscount Int?      @map("max_discount")
+  startsAt    DateTime? @map("starts_at") @db.Timestamptz(6)
+  endsAt      DateTime? @map("ends_at") @db.Timestamptz(6)
+  usageLimit  Int?      @map("usage_limit")
+  timesUsed   Int       @default(0) @map("times_used")
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("discounts")
+}
+
+// ---------------------------------------------------------------- customers
+
+model Customer {
+  id        String         @id @db.Uuid
+  email     String         @unique
+  name      String?
+  phone     String?
+  createdAt DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime       @default(now()) @map("updated_at") @db.Timestamptz(6)
+  sessions  Session[]
+  addresses Address[]
+  wishlist  WishlistItem[]
+  orders    Order[]
+
+  @@map("customers")
+}
+
+/// Email sign-in codes, stored as an HMAC of the code.
+model LoginCode {
+  id         BigInt    @id @default(autoincrement())
+  email      String
+  codeHash   String    @map("code_hash")
+  attempts   Int       @default(0)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([email, createdAt(sort: Desc)], map: "login_codes_email_idx")
+  @@map("login_codes")
+}
+
+/// id is the SHA-256 of the session cookie token; the raw token is never stored.
+model Session {
+  id         String   @id
+  customerId String   @map("customer_id") @db.Uuid
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime @map("expires_at") @db.Timestamptz(6)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([customerId], map: "sessions_customer_idx")
+  @@map("sessions")
+}
+
+model Address {
+  id         String   @id @db.Uuid
+  customerId String   @map("customer_id") @db.Uuid
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  name       String
+  phone      String
+  address1   String
+  address2   String?
+  city       String
+  state      String
+  pincode    String
+  isDefault  Boolean  @default(false) @map("is_default")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([customerId], map: "addresses_customer_idx")
+  @@map("addresses")
+}
+
+model WishlistItem {
+  customerId  String   @map("customer_id") @db.Uuid
+  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  productSlug String   @map("product_slug")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@id([customerId, productSlug])
+  @@map("wishlist_items")
+}
+
+// ---------------------------------------------------------------- orders
+
+model Order {
+  id                      String      @id @db.Uuid
+  number                  String      @unique
+  /// pending_payment | paid | cod_confirmed | payment_failed | shipped | delivered | cancelled | expired
+  status                  String
+  /// razorpay | cod
+  paymentMethod           String      @map("payment_method")
+  email                   String
+  phone                   String
+  name                    String
+  address1                String
+  address2                String?
+  city                    String
+  state                   String
+  pincode                 String
+  giftNote                String?     @map("gift_note")
+  subtotal                Int
+  shipping                Int
+  codFee                  Int         @default(0) @map("cod_fee")
+  discountCode            String?     @map("discount_code")
+  discountAmount          Int         @default(0) @map("discount_amount")
+  total                   Int
+  currency                String      @default("INR")
+  razorpayOrderId         String?     @unique @map("razorpay_order_id")
+  razorpayPaymentId       String?     @map("razorpay_payment_id")
+  trackingNumber          String?     @map("tracking_number")
+  carrier                 String?
+  shippedAt               DateTime?   @map("shipped_at") @db.Timestamptz(6)
+  deliveredAt             DateTime?   @map("delivered_at") @db.Timestamptz(6)
+  confirmationEmailSentAt DateTime?   @map("confirmation_email_sent_at") @db.Timestamptz(6)
+  shippingEmailSentAt     DateTime?   @map("shipping_email_sent_at") @db.Timestamptz(6)
+  customerId              String?     @map("customer_id") @db.Uuid
+  customer                Customer?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  /// True while the order holds stock; flipped when stock is returned so restores are idempotent.
+  stockReserved           Boolean     @default(false) @map("stock_reserved")
+  createdAt               DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime    @default(now()) @map("updated_at") @db.Timestamptz(6)
+  items                   OrderItem[]
+  payments                Payment[]
+  returns                 Return[]
+  refunds                 Refund[]
+
+  @@index([createdAt(sort: Desc)], map: "orders_created_at_idx")
+  @@index([status], map: "orders_status_idx")
+  @@index([customerId], map: "orders_customer_idx")
+  @@map("orders")
+}
+
+/// Line items keep a snapshot of name, colour, size and price at the time of
+/// purchase; variant_id links back to the catalogue when it still exists.
+model OrderItem {
+  id          BigInt       @id @default(autoincrement())
+  orderId     String       @map("order_id") @db.Uuid
+  order       Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  variantId   Int?         @map("variant_id")
+  variant     Variant?     @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  productSlug String       @map("product_slug")
+  productName String       @map("product_name")
+  colour      String
+  size        String
+  unitPrice   Int          @map("unit_price")
+  quantity    Int
+  returnItems ReturnItem[]
+
+  @@index([orderId], map: "order_items_order_id_idx")
+  @@map("order_items")
+}
+
+/// One row per payment attempt or collection.
+model Payment {
+  id                String   @id @db.Uuid
+  orderId           String   @map("order_id") @db.Uuid
+  order             Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  /// razorpay | cod
+  provider          String
+  /// created | pending | captured | failed | cancelled
+  status            String
+  amount            Int
+  currency          String   @default("INR")
+  providerOrderId   String?  @map("provider_order_id")
+  providerPaymentId String?  @unique @map("provider_payment_id")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@index([orderId])
+  @@map("payments")
+}
+
+model Return {
+  id        String       @id @db.Uuid
+  orderId   String       @map("order_id") @db.Uuid
+  order     Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  /// requested | approved | rejected | received | refunded
+  status    String
+  reason    String
+  comment   String?
+  amount    Int
+  adminNote String?      @map("admin_note")
+  restocked Boolean      @default(false)
+  createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime     @default(now()) @map("updated_at") @db.Timestamptz(6)
+  items     ReturnItem[]
+  refunds   Refund[]
+
+  @@index([orderId], map: "returns_order_idx")
+  @@index([status, createdAt(sort: Desc)], map: "returns_status_idx")
+  @@map("returns")
+}
+
+model ReturnItem {
+  returnId    String    @map("return_id") @db.Uuid
+  return      Return    @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  orderItemId BigInt    @map("order_item_id")
+  orderItem   OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  quantity    Int
+
+  @@id([returnId, orderItemId])
+  @@map("return_items")
+}
+
+/// One row per refund attempt. Failed attempts don't count towards the refunded total.
+model Refund {
+  id               String   @id @db.Uuid
+  orderId          String   @map("order_id") @db.Uuid
+  order            Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  returnId         String?  @map("return_id") @db.Uuid
+  return           Return?  @relation(fields: [returnId], references: [id], onDelete: SetNull)
+  amount           Int
+  /// razorpay | manual
+  method           String
+  /// pending | initiated | processed | failed
+  status           String
+  razorpayRefundId String?  @unique @map("razorpay_refund_id")
+  reference        String?
+  error            String?
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@index([orderId], map: "refunds_order_idx")
+  @@map("refunds")
+}
