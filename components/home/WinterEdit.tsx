@@ -24,7 +24,7 @@ export function WinterEdit() {
               Winter Edit.
             </h2>
             <p className="mt-6 max-w-xs text-sm leading-relaxed text-ivory/80">
-              Layered looks for colder days. Same refined approach.
+              Easy layers for colder days. Same considered approach.
             </p>
             <div className="mt-8">
               <ButtonLink href="/collections/winter-edit" variant="outline-light">

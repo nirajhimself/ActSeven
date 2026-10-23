@@ -33,11 +33,11 @@ export type SeedProduct = {
 export type SeedCategory = { slug: string; name: string; tagline: string; image: Photo };
 
 export const categories: SeedCategory[] = [
-  { slug: "shirts", name: "Shirts", tagline: "Refined essentials", image: photos.whiteShirtMan },
-  { slug: "trousers", name: "Trousers", tagline: "Everyday comfort", image: photos.blackTrouser },
-  { slug: "suits-blazers", name: "Suits & Blazers", tagline: "Built for more", image: photos.doubleBreasted },
-  { slug: "knitwear", name: "Knitwear", tagline: "Easy sophistication", image: photos.navySweatshirt },
-  { slug: "outerwear", name: "Outerwear", tagline: "For the season", image: photos.oliveJacket },
+  { slug: "shirts", name: "Shirts", tagline: "Shirts to wear on repeat", image: photos.whiteShirtMan },
+  { slug: "trousers", name: "Trousers", tagline: "Easy shapes for every day", image: photos.blackTrouser },
+  { slug: "suits-blazers", name: "Suits & Blazers", tagline: "Tailoring, made easy", image: photos.doubleBreasted },
+  { slug: "knitwear", name: "Knitwear", tagline: "Soft layers, easy to wear", image: photos.navySweatshirt },
+  { slug: "outerwear", name: "Outerwear", tagline: "Ready for the weather", image: photos.oliveJacket },
 ];
 
 export const colours = {
@@ -80,10 +80,10 @@ export const products: SeedProduct[] = [
     images: [photos.whiteShirtTie, photos.whiteShirtsHanging, photos.shirtDetail],
     summary: "Refined essentials for every day.",
     description:
-      "A classic Oxford shirt cut from premium cotton, designed for everyday versatility. Clean, sharp and effortless — under tailoring or on its own.",
-    highlights: ["100% premium cotton", "Regular fit", "Pre-washed for softness", "Button-down collar"],
+      "A classic Oxford shirt in soft cotton, made for everyday wear. Clean and easy — under tailoring or on its own.",
+    highlights: ["100% cotton Oxford", "Regular fit", "Pre-washed for softness", "Button-down collar"],
     fabric: "100% long-staple cotton Oxford weave, 140 GSM.",
-    fit: "Regular fit. True to size — choose your usual size. Model is 6′0″ wearing M.",
+    fit: "Regular fit. True to size — choose your usual size.",
     care: shirtCare,
     styles: ["formal", "casual"],
     isNew: true,
@@ -99,8 +99,8 @@ export const products: SeedProduct[] = [
     images: [photos.whiteShirtMan, photos.whiteShirtsHanging],
     summary: "Breathable linen with an easy drape.",
     description:
-      "Garment-washed linen with a soft hand and relaxed shoulder. Made for warm Indian afternoons and evenings that run long.",
-    highlights: ["100% European linen", "Relaxed fit", "Garment washed", "Mother-of-pearl buttons"],
+      "Garment-washed linen with a soft hand and relaxed shoulder. Made for warm days and long evenings.",
+    highlights: ["100% linen", "Relaxed fit", "Garment washed", "Mother-of-pearl buttons"],
     fabric: "100% linen, 160 GSM, garment washed.",
     fit: "Relaxed fit with a dropped shoulder. Size down for a closer fit.",
     care: shirtCare,
@@ -175,8 +175,8 @@ export const products: SeedProduct[] = [
     images: [photos.blackTrouser],
     summary: "A fluid line with a sharp crease.",
     description:
-      "High-rise, wide-leg trousers in a fluid wool-blend twill, with a pressed front crease and side adjusters in place of belt loops.",
-    highlights: ["Wool-blend twill", "High rise", "Pressed front crease", "Side adjusters"],
+      "High-rise, wide-leg trousers in a fluid, drapey fabric, with a pressed front crease and side adjusters in place of belt loops.",
+    highlights: ["Fluid drape", "High rise", "Pressed front crease", "Side adjusters"],
     fabric: "68% polyester, 30% viscose, 2% elastane.",
     fit: "Relaxed through the leg with a high rise. True to waist size.",
     care: woolCare,
@@ -213,7 +213,7 @@ export const products: SeedProduct[] = [
     images: [photos.darkDenim],
     summary: "Deep indigo that fades with you.",
     description:
-      "Unwashed indigo denim with a straight leg. It starts dark and stiff and, over months of wear, fades to a record of your days.",
+      "Unwashed indigo denim with a straight leg. It starts dark and stiff, then softens and fades the more you wear it.",
     highlights: ["13.5 oz raw denim", "Straight leg", "Copper rivets"],
     fabric: "100% cotton raw denim, 13.5 oz.",
     fit: "Straight leg, mid rise. Expect slight stretch at the waist with wear.",
@@ -231,7 +231,7 @@ export const products: SeedProduct[] = [
     images: [photos.navySuit, photos.suitMannequin],
     summary: "The suit every wardrobe is built around.",
     description:
-      "A single-breasted, two-button suit in a fine worsted wool. Half-canvassed for a natural roll to the lapel and shape that improves with wear.",
+      "A single-breasted, two-button suit in a fine worsted wool. Half-canvassed for a natural roll to the lapel.",
     highlights: ["Super 110s worsted wool", "Half-canvas construction", "Notch lapel", "Flat-front trousers"],
     fabric: "100% worsted wool, Super 110s. Viscose lining.",
     fit: "Tailored fit. Choose your chest size; trousers are matched and can be altered.",
@@ -368,7 +368,7 @@ export const products: SeedProduct[] = [
     images: [photos.tweedScarf, photos.tweedMannequins],
     summary: "Heritage cloth, modern cut.",
     description:
-      "A herringbone tweed jacket with a softly structured shoulder and leather-trimmed details. A winter piece built to last decades.",
+      "A herringbone tweed jacket with a softly structured shoulder and horn buttons. An easy winter layer.",
     highlights: ["Wool herringbone tweed", "Half lined", "Horn buttons"],
     fabric: "100% wool tweed, 480 GSM.",
     fit: "Regular fit with room to layer knitwear.",
@@ -425,7 +425,7 @@ export const products: SeedProduct[] = [
     images: [photos.denimJacket],
     summary: "Rigid denim with a corduroy collar.",
     description:
-      "A classic trucker in rigid indigo denim, finished with a corduroy collar. Shown as sold out to demonstrate availability states.",
+      "A classic trucker in rigid indigo denim, finished with a corduroy collar. An easy layer over almost anything.",
     highlights: ["12 oz denim", "Corduroy collar", "Button-flap pockets"],
     fabric: "100% cotton denim, 12 oz.",
     fit: "Regular fit, sits at the hip.",

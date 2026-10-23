@@ -5,13 +5,13 @@ import { photos } from "@/lib/photos";
 
 export const metadata: Metadata = {
   title: "About",
-  description: "ACT VII makes considered menswear: fewer, better pieces designed to stay relevant season after season.",
+  description: "ACT VII makes modern, considered clothing for everyone: fewer, better pieces that work together, season after season.",
 };
 
 const principles = [
   { n: "01", title: "Less, but better.", body: "A focused wardrobe of pieces that work together, rather than a collection that chases every season." },
-  { n: "02", title: "Cloth first.", body: "We start with the fabric — long-staple cottons, linens and wools chosen for how they wear, not just how they look on day one." },
-  { n: "03", title: "Cut for India.", body: "Weights, linings and silhouettes considered for Indian climates, from humid monsoons to cool northern winters." },
+  { n: "02", title: "Cloth first.", body: "We start with the fabric and how it feels to wear, then design each piece around it." },
+  { n: "03", title: "Made for everyone.", body: "Easy shapes and clear fit notes, so each piece works across different bodies and styles." },
 ];
 
 export default function AboutPage() {
@@ -34,7 +34,7 @@ export default function AboutPage() {
         </p>
         <div className="space-y-5 text-[0.9375rem] leading-relaxed text-graphite">
           <p>
-            We design modern menswear with an editor&apos;s restraint — clean lines, quiet colour and the kind of detail you notice
+            We design modern clothing for everyone, with an editor&apos;s restraint — clean lines, quiet colour and the kind of detail you notice
             only up close. Shirts with collars that hold their shape. Trousers that drape. Tailoring that moves with you.
           </p>
           <p>

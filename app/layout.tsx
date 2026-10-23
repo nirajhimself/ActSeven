@@ -27,10 +27,10 @@ export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   openGraph: { siteName: "ACT VII", locale: "en_IN", type: "website" },
   title: {
-    default: "ACT VII — Modern Menswear",
+    default: "ACT VII — Modern Clothing",
     template: "%s — ACT VII",
   },
-  description: "Premium Indian menswear for a more considered you. Refined shirts, tailoring, knitwear and outerwear.",
+  description: "Contemporary clothing for everyone, from India. Shirts, trousers, tailoring, knitwear and outerwear, thoughtfully chosen.",
 };
 
 export const viewport: Viewport = {

@@ -38,8 +38,8 @@ export function Footer({ categories }: { categories: Category[] }) {
         </div>
 
         <div className="md:col-span-2 lg:col-span-1">
-          <h2 className="display text-2xl">Join the Journal</h2>
-          <p className="mt-2 mb-5 text-sm text-taupe-light">Be the first to know about new collections.</p>
+          <h2 className="display text-2xl">Stay in the loop.</h2>
+          <p className="mt-2 mb-5 text-sm text-taupe-light">New collections, thoughtful notes, and the occasional thing worth sharing. Straight to your inbox.</p>
           <NewsletterForm />
         </div>
       </div>

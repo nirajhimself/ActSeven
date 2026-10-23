@@ -20,7 +20,7 @@ export function TailoringPromo() {
             for today.
           </h2>
           <p className="mt-5 text-sm leading-relaxed text-ivory/80">
-            Modern silhouettes. Timeless appeal. Half-canvassed suits and soft-shouldered blazers cut for the way you move.
+            Clean lines, easy structure. Half-canvassed suits and soft-shouldered blazers, cut for the way you move.
           </p>
           <ButtonLink href="/collections/tailoring" variant="outline-light" className="mt-8">
             Explore tailoring

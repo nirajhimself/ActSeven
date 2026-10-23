@@ -62,9 +62,9 @@ export function Hero({ slides }: { slides: PhotoData[] }) {
       {/* Copy */}
       <div className="shell relative flex h-full flex-col justify-end pb-28 lg:justify-center lg:pb-0 lg:pt-24">
         <p className="mb-6 text-[0.625rem] leading-relaxed tracking-[0.26em] text-ivory/70 uppercase">
-          Modern menswear
+          Modern clothing
           <br />
-          For a more considered you
+          Considered, for everyone
         </p>
         <h1 className="display text-[3.6rem] font-light sm:text-7xl lg:text-[6.75rem]">
           A Higher
@@ -72,11 +72,11 @@ export function Hero({ slides }: { slides: PhotoData[] }) {
           Standard.
         </h1>
         <p className="mt-6 max-w-[16rem] text-sm leading-relaxed text-ivory/80 lg:text-[0.9375rem]">
-          Timeless pieces for the everyday you.
+          Everyday pieces, thoughtfully chosen.
         </p>
         <div className="mt-8">
           <ButtonLink href="/collections/all" variant="light">
-            Explore collection
+            Explore the collection
           </ButtonLink>
         </div>
       </div>

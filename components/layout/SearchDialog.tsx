@@ -66,7 +66,7 @@ export function SearchDialog({ open, onClose }: { open: boolean; onClose: () => 
         <div aria-live="polite" className="mt-6 min-h-24">
           {query.trim().length < 2 ? (
             <div className="flex flex-wrap items-center gap-2">
-              <span className="eyebrow mr-2">Popular</span>
+              <span className="eyebrow mr-2">Try</span>
               {suggestions.map((s) => (
                 <button key={s} type="button" onClick={() => setQuery(s)} className="border border-obsidian/20 px-3 py-2 text-xs hover:border-obsidian">
                   {s}

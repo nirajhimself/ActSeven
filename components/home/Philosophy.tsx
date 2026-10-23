@@ -19,7 +19,7 @@ export function Philosophy() {
             Less, but better.
           </h2>
           <p className="mt-6 text-[0.9375rem] leading-relaxed text-graphite">
-            Thoughtful design. Premium fabrics. Versatile pieces. Clothing that stays relevant, season after season.
+            The best clothes are the ones you reach for without thinking twice. Considered fabrics, easy silhouettes, and details that make a difference.
           </p>
           <ButtonLink href="/about" variant="outline" className="mt-8">
             Our story

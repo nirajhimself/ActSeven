@@ -35,7 +35,7 @@ export function CartDrawer({ testCheckout = false }: { testCheckout?: boolean })
         {resolved.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-6 px-6 text-center">
             <p className="display text-3xl">Your bag is empty.</p>
-            <p className="max-w-xs text-sm text-taupe">Considered pieces, made to last. Start with the essentials.</p>
+            <p className="max-w-xs text-sm text-taupe">Easy, considered pieces for every day. Start with the essentials.</p>
             <ButtonLink href="/collections/all" onClick={cartDrawer.close}>
               Shop the collection
             </ButtonLink>

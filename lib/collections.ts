@@ -41,7 +41,7 @@ export function collectionsFor(categories: Category[]): Collection[] {
     {
       slug: "winter-edit",
       title: "The Winter Edit",
-      description: "Layered looks for colder days. Same refined approach.",
+      description: "Easy layers for colder days. Same considered approach.",
       banner: photos.tweedScarf,
       multiCategory: true,
       match: (p) => Boolean(p.campaigns?.includes("winter-edit")),
@@ -49,7 +49,7 @@ export function collectionsFor(categories: Category[]): Collection[] {
     {
       slug: "tailoring",
       title: "Tailoring",
-      description: "Modern silhouettes. Timeless appeal.",
+      description: "Clean lines, easy structure.",
       banner: photos.tieAdjust,
       multiCategory: true,
       match: (p) => Boolean(p.campaigns?.includes("tailoring")),
@@ -57,7 +57,7 @@ export function collectionsFor(categories: Category[]): Collection[] {
     ...categories.map((cat) => ({
       slug: cat.slug,
       title: cat.name,
-      description: `${cat.tagline} for every day.`,
+      description: `${cat.tagline}.`,
       banner: categoryBanners[cat.slug] ?? cat.image,
       multiCategory: false,
       match: (p: Product) => p.category === cat.slug,

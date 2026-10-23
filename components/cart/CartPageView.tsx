@@ -29,7 +29,7 @@ export function CartPageView({ testCheckout = false }: { testCheckout?: boolean 
           <RemovedNotice />
         </div>
         <p className="display mt-10 text-4xl">Your bag is empty.</p>
-        <p className="max-w-sm text-sm text-taupe">Considered pieces, made to last. Start with the essentials.</p>
+        <p className="max-w-sm text-sm text-taupe">Easy, considered pieces for every day. Start with the essentials.</p>
         <div className="flex flex-wrap gap-3">
           <ButtonLink href="/collections/all">Shop the collection</ButtonLink>
           <ButtonLink href="/collections/new-arrivals" variant="outline" arrow={false}>
