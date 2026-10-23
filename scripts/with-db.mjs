@@ -8,9 +8,10 @@
 // and the command runs with DATABASE_URL pointing at it.
 //   default:  data persists in .data/pglite (used by `npm run dev`)
 //   --memory: a throwaway in-memory database (used by `npm run build`)
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { connect, createServer } from "node:net";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import nextEnv from "@next/env";
 
@@ -33,6 +34,39 @@ const bin = (name) => {
 };
 const run = (cmd, cmdArgs, env) => spawn(bin(cmd), cmdArgs, { stdio: "inherit", env, shell: isWin });
 
+/**
+ * Stops a child and everything it started. On Windows the child is a cmd.exe
+ * shell, and killing only the shell would leave `next dev` running in the
+ * background (still holding port 3000 with its old settings).
+ */
+function killTree(child) {
+  if (!child || child.exitCode !== null || !child.pid) return;
+  if (isWin) {
+    // Full path: taskkill isn't always on PATH (e.g. some sandboxed shells).
+    const taskkill = join(process.env.SystemRoot ?? "C:/Windows", "System32", "taskkill.exe");
+    spawnSync(taskkill, ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+  } else {
+    child.kill("SIGTERM");
+  }
+}
+
+/** Runs the command as the final step and exits with it, cleaning up on any shutdown signal. */
+function runToEnd(env, onExit = async () => {}) {
+  const child = run(command[0], command.slice(1), env);
+  let done = false;
+  const finish = async (code) => {
+    if (done) return;
+    done = true;
+    killTree(child);
+    await onExit();
+    process.exit(code);
+  };
+  child.on("exit", (code) => finish(code ?? 0));
+  // SIGHUP: terminal closed; SIGBREAK: Ctrl+Break / console closing on Windows.
+  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK"]) process.on(sig, () => finish(0));
+  return child;
+}
+
 const LOCAL_PORT = 5433;
 const localUrl = (port) => `postgres://postgres:postgres@127.0.0.1:${port}/postgres`;
 const sampleEnv = (port) => ({
@@ -49,14 +83,12 @@ const listening = (port) =>
   });
 
 if (configured(process.env.DATABASE_URL)) {
-  const child = run(command[0], command.slice(1), process.env);
-  child.on("exit", (code) => process.exit(code ?? 0));
+  runToEnd(process.env);
 } else if (!memory && (await listening(LOCAL_PORT))) {
   // e.g. `npm run db:studio` while `npm run dev` is running: share its database
   // (PGlite's data folder must only be opened by one process).
   console.log(`▸ Using the local database already running on 127.0.0.1:${LOCAL_PORT}`);
-  const child = run(command[0], command.slice(1), sampleEnv(LOCAL_PORT));
-  child.on("exit", (code) => process.exit(code ?? 0));
+  runToEnd(sampleEnv(LOCAL_PORT));
 } else {
   const { PGlite } = await import("@electric-sql/pglite");
   const { PGLiteSocketServer } = await import("@electric-sql/pglite-socket");
@@ -89,15 +121,10 @@ if (configured(process.env.DATABASE_URL)) {
       run(cmd, cmdArgs, env).on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`${label} failed`)))),
     );
 
-  let child;
-  const stop = async (code = 0) => {
-    child?.kill();
+  const closeDb = async () => {
     await server.stop().catch(() => {});
     await pg.close().catch(() => {});
-    process.exit(code);
   };
-  process.on("SIGINT", () => stop(0));
-  process.on("SIGTERM", () => stop(0));
 
   try {
     console.log(`▸ Local database on 127.0.0.1:${port} (${memory ? "in memory" : ".data/pglite"}) — no DATABASE_URL in .env.local`);
@@ -107,9 +134,9 @@ if (configured(process.env.DATABASE_URL)) {
     else console.log(`▸ Catalogue already has ${rows[0].n} products (run \`npm run db:seed\` to reset sample data)`);
   } catch (err) {
     console.error(`✗ ${err.message}`);
-    await stop(1);
+    await closeDb();
+    process.exit(1);
   }
 
-  child = run(command[0], command.slice(1), env);
-  child.on("exit", (code) => stop(code ?? 0));
+  runToEnd(env, closeDb);
 }

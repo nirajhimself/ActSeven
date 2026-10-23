@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "node scripts/with-db.mjs next dev",
+    "dev:stop": "node scripts/stop-dev.mjs",
     "build": "node scripts/with-db.mjs --memory next build",
     "start": "node scripts/with-db.mjs next start",
     "lint": "eslint",

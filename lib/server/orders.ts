@@ -175,11 +175,13 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export async function getOrder(id: string): Promise<Order | null> {
   if (!UUID.test(id)) return null;
   const sql = db();
-  const [row] = await sql`select * from orders where id = ${id}`;
+  // In parallel: each round trip to a distant database costs hundreds of ms.
+  const [[row], items] = await Promise.all([
+    sql`select * from orders where id = ${id}`,
+    sql`select id::text as id, product_slug, product_name, colour, size, unit_price, quantity
+          from order_items where order_id = ${id} order by id`,
+  ]);
   if (!row) return null;
-  const items = await sql`
-    select id::text as id, product_slug, product_name, colour, size, unit_price, quantity
-      from order_items where order_id = ${id} order by id`;
   return {
     id: row.id,
     number: row.number,

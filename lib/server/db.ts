@@ -26,6 +26,9 @@ export function connectionOptions(url: string): postgres.Options<Record<string, 
   return {
     max: 5,
     idle_timeout: 20,
+    // Recycle connections and give up on hung connects instead of waiting forever.
+    max_lifetime: 60 * 10,
+    connect_timeout: 20,
     onnotice: () => {},
     // Hosted databases (Supabase, Neon) require TLS.
     ssl: local ? false : "require",

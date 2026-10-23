@@ -10,6 +10,11 @@ const nextConfig: NextConfig = {
     loader: "custom",
     loaderFile: "./lib/image-loader.ts",
   },
+  // Some browsers request /favicon.ico regardless of <link rel="icon">; serve
+  // the same monogram (app/icon.svg) instead of a 404.
+  async rewrites() {
+    return [{ source: "/favicon.ico", destination: "/icon.svg" }];
+  },
   turbopack: {
     rules: {
       "*.css": {

@@ -1,7 +1,8 @@
 import "server-only";
 import { cacheLife, cacheTag } from "next/cache";
 import { variantKey, type Catalog, type Product, type StockLevels, type Style } from "@/lib/catalog";
-import { prisma } from "./prisma";
+import { db } from "./db";
+import { prisma, withReadRetry } from "./prisma";
 
 /** Cache tag for everything read from the catalogue tables, including stock. */
 export const CATALOG_TAG = "catalog";
@@ -18,9 +19,11 @@ export async function getCatalog(): Promise<Catalog> {
   cacheLife("minutes");
 
   const db = prisma();
-  const [categories, products] = await Promise.all([
+  const [categories, products] = await withReadRetry(() => Promise.all([
     db.category.findMany({ orderBy: { sortOrder: "asc" } }),
     db.product.findMany({
+      // One query with joins instead of one per relation.
+      relationLoadStrategy: "join",
       where: { status: "active" },
       orderBy: { sortOrder: "asc" },
       include: {
@@ -30,7 +33,7 @@ export async function getCatalog(): Promise<Catalog> {
         variants: { where: { active: true }, include: { colour: true, size: true, inventory: true } },
       },
     }),
-  ]);
+  ]));
 
   return {
     categories: categories.map((c) => ({
@@ -78,13 +81,21 @@ export async function getProductBySlug(slug: string) {
   return (await getCatalog()).products.find((p) => p.slug === slug);
 }
 
-/** Uncached stock for one product (for the product page's live availability). */
+/**
+ * Uncached stock for one product (for the product page's live availability).
+ * One SQL round trip — this runs on every product view, and Prisma would
+ * split the nested relations into several queries.
+ */
 export async function getLiveStock(slug: string): Promise<StockLevels> {
-  const rows = await prisma().inventory.findMany({
-    where: { variant: { product: { slug }, active: true } },
-    select: { quantity: true, variant: { select: { colour: { select: { name: true } }, size: { select: { label: true } } } } },
-  });
-  return Object.fromEntries(rows.map((r) => [variantKey(r.variant.colour.name, r.variant.size.label), r.quantity]));
+  const rows = await db()`
+    select c.name as colour, s.label as size, i.quantity
+      from inventory i
+      join variants v on v.id = i.variant_id
+      join products p on p.id = v.product_id
+      join colours c on c.id = v.colour_id
+      join sizes s on s.id = v.size_id
+     where p.slug = ${slug} and v.active`;
+  return Object.fromEntries(rows.map((r) => [variantKey(r.colour, r.size), r.quantity as number]));
 }
 
 export type CheckoutVariant = { variantId: number; slug: string; name: string; colour: string; size: string; price: number; stock: number };

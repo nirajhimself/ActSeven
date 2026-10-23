@@ -7,12 +7,23 @@ import { Monogram } from "@/components/brand/Logo";
 import { ButtonLink } from "@/components/ui/Button";
 import { ReturnRequestForm } from "@/components/order/ReturnRequestForm";
 import { formatINR } from "@/lib/format";
-import { isReturnWindowOpen, refundStatusLabel, returnableQuantities, returnStatusLabel, returnStatusTone, returnWindowEnds, type Refund } from "@/lib/returns";
+import {
+  isReturnWindowOpen,
+  refundStatusLabel,
+  returnableQuantities,
+  returnStatusLabel,
+  returnStatusTone,
+  returnWindowEnds,
+  type Refund,
+  type ReturnRequest,
+} from "@/lib/returns";
 import { isDatabaseConfigured } from "@/lib/server/db";
 import { getOrder, type Order } from "@/lib/server/orders";
 import { listRefunds, listReturnsForOrder } from "@/lib/server/returns";
 
 export const metadata: Metadata = { title: "Your order", robots: { index: false, follow: false } };
+
+const ORDER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export default function OrderPage({ params }: PageProps<"/orders/[id]">) {
   return (
@@ -73,8 +84,9 @@ const statusCopy: Record<Order["status"], { eyebrow: string; title: string; body
 
 async function OrderContent({ params }: { params: PageProps<"/orders/[id]">["params"] }) {
   const { id } = await params;
-  if (!isDatabaseConfigured()) notFound();
-  const order = await getOrder(id);
+  if (!isDatabaseConfigured() || !ORDER_ID.test(id)) notFound();
+  // Fetch the order and its returns/refunds together rather than one after another.
+  const [order, returns, refunds] = await Promise.all([getOrder(id), listReturnsForOrder(id), listRefunds(id)]);
   if (!order) notFound();
 
   const copy = statusCopy[order.status];
@@ -182,7 +194,7 @@ async function OrderContent({ params }: { params: PageProps<"/orders/[id]">["par
         </section>
       </div>
 
-      <OrderReturns order={order} />
+      <OrderReturns order={order} returns={returns} refunds={refunds} />
     </>
   );
 }
@@ -199,9 +211,8 @@ function refundLine(r: Refund) {
   return r.status === "failed" ? null : `${refundStatusLabel[r.status]}: ${formatINR(r.amount)} ${how}.`;
 }
 
-async function OrderReturns({ order }: { order: Order }) {
+async function OrderReturns({ order, returns, refunds }: { order: Order; returns: ReturnRequest[]; refunds: Refund[] }) {
   await connection();
-  const [returns, refunds] = await Promise.all([listReturnsForOrder(order.id), listRefunds(order.id)]);
   const cancelRefunds = refunds.filter((r) => !r.returnId && r.status !== "failed");
   const deadline = order.deliveredAt ? returnWindowEnds(order.deliveredAt) : null;
   const open = order.status === "delivered" && isReturnWindowOpen(order.deliveredAt);
