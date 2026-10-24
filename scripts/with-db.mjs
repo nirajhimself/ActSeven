@@ -89,6 +89,13 @@ const listening = (port) =>
     sock.on("error", () => resolve(false));
   });
 
+// On a hosting platform a missing database is a configuration mistake: fail
+// loudly instead of building the store from a throwaway sample database.
+if (!isolated && !configured(process.env.DATABASE_URL) && (process.env.VERCEL || process.env.CI)) {
+  console.error("✗ DATABASE_URL is not set in this environment. Add it in your hosting settings (see docs/LAUNCH.md).");
+  process.exit(1);
+}
+
 if (!isolated && configured(process.env.DATABASE_URL)) {
   runToEnd(process.env);
 } else if (!memory && (await listening(LOCAL_PORT))) {

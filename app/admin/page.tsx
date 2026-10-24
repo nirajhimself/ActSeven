@@ -9,6 +9,7 @@ import { getOverview } from "@/lib/server/admin-overview";
 import { recentAudit } from "@/lib/server/admin-session";
 import { recentPaymentEvents } from "@/lib/server/payments";
 import { paymentMode } from "@/lib/server/razorpay";
+import { checkConfig } from "@/lib/server/config";
 
 export const metadata: Metadata = { title: "Overview · Admin", robots: { index: false, follow: false } };
 
@@ -44,6 +45,7 @@ async function Overview() {
   const admin = await requireAdmin();
   const [o, events, audit] = await Promise.all([getOverview(), recentPaymentEvents(6), recentAudit(8)]);
   const mode = paymentMode();
+  const setup = checkConfig();
 
   return (
     <>
@@ -59,6 +61,22 @@ async function Overview() {
             ? "Payments are LIVE: real money is being taken."
             : "Online payments aren't set up. Add Razorpay TEST keys (RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET) to take test payments."}
         </p>
+      ) : null}
+
+      {setup.length ? (
+        <section aria-labelledby="setup-h" className="mb-8 border border-obsidian/10 p-4">
+          <h2 id="setup-h" className="label mb-2">
+            Setup checks
+          </h2>
+          <ul className="space-y-1 text-xs">
+            {setup.map((f) => (
+              <li key={f.key + f.message}>
+                <span className={f.level === "error" ? "font-medium text-[#8a2a1c]" : "text-[#6a4a12]"}>{f.level === "error" ? "Fix" : "Note"}</span>{" "}
+                <code>{f.key}</code> — {f.message}
+              </li>
+            ))}
+          </ul>
+        </section>
       ) : null}
 
       <section aria-labelledby="today-h">

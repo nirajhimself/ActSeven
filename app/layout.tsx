@@ -38,11 +38,32 @@ export const viewport: Viewport = {
   themeColor: "#0d0c0a",
 };
 
+/**
+ * Development only: some browsers' form autofill (e.g. Microsoft Edge, password
+ * managers) stamps an `fdprocessedid` attribute on buttons and inputs before
+ * React hydrates, which React reports as a hydration mismatch. This strips
+ * those markers until the page has loaded, then stops watching. Production
+ * doesn't include it — React doesn't report these there.
+ */
+const STRIP_AUTOFILL_MARKERS = `(() => {
+  const attr = "fdprocessedid";
+  const observer = new MutationObserver((mutations) => {
+    for (const m of mutations) m.target.removeAttribute(attr);
+  });
+  observer.observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: [attr] });
+  addEventListener("load", () => setTimeout(() => observer.disconnect(), 3000));
+})();`;
+
 export default async function RootLayout({ children }: LayoutProps<"/">) {
   // Cached (lib/server/catalog.ts), so the layout stays part of the static shell.
   const catalog = await getCatalog();
   return (
     <html lang="en-IN" data-scroll-behavior="smooth" className={`${cormorant.variable} ${jost.variable} antialiased`}>
+      {process.env.NODE_ENV === "development" ? (
+        <head>
+          <script dangerouslySetInnerHTML={{ __html: STRIP_AUTOFILL_MARKERS }} />
+        </head>
+      ) : null}
       <body className="flex min-h-dvh flex-col">
         <a
           href="#main"
