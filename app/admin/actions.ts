@@ -33,20 +33,25 @@ function returnIdFrom(formData: FormData) {
 const note = (formData: FormData) => String(formData.get("note") ?? "").trim().slice(0, 500);
 
 export async function shipOrderAction(formData: FormData) {
-  await requireAdmin();
+  const admin = await requireAdmin();
   const id = orderIdFrom(formData);
   const ok = await markShipped(id, {
     number: String(formData.get("tracking") ?? "").trim().slice(0, 80),
     carrier: String(formData.get("carrier") ?? "").trim().slice(0, 60),
   });
-  if (ok) after(() => sendShippingNotice(id));
+  if (ok) {
+    await admin.audit("order.ship", "order", id, { carrier: String(formData.get("carrier") ?? ""), tracking: String(formData.get("tracking") ?? "") });
+    after(() => sendShippingNotice(id));
+  }
   back(id, ok ? "shipped" : "invalid");
 }
 
 export async function deliverOrderAction(formData: FormData) {
-  await requireAdmin();
+  const admin = await requireAdmin();
   const id = orderIdFrom(formData);
-  back(id, (await markDelivered(id)) ? "delivered" : "invalid");
+  const ok = await markDelivered(id);
+  if (ok) await admin.audit("order.deliver", "order", id);
+  back(id, ok ? "delivered" : "invalid");
 }
 
 /**
@@ -55,7 +60,7 @@ export async function deliverOrderAction(formData: FormData) {
  * stock taken by orders after the page loaded isn't overwritten.
  */
 export async function saveInventoryAction(formData: FormData) {
-  await requireAdmin();
+  const admin = await requireAdmin();
   const levels: { variantId: number; quantity: number }[] = [];
   for (const [key, raw] of formData.entries()) {
     if (!key.startsWith("stock:")) continue;
@@ -66,15 +71,19 @@ export async function saveInventoryAction(formData: FormData) {
     levels.push({ variantId, quantity });
   }
   const saved = await setStockLevels(levels);
-  if (saved > 0) updateTag(CATALOG_TAG);
+  if (saved > 0) {
+    updateTag(CATALOG_TAG);
+    await admin.audit("inventory.update", "inventory", null, { changes: levels.slice(0, 200) });
+  }
   redirect(`/admin/inventory?saved=${saved}`);
 }
 
 /** Cancels an order; if it was paid online, the full amount is refunded through Razorpay. */
 export async function cancelOrderAction(formData: FormData) {
-  await requireAdmin();
+  const admin = await requireAdmin();
   const id = orderIdFrom(formData);
   if (!(await cancelOrder(id))) back(id, "invalid");
+  await admin.audit("order.cancel", "order", id);
   updateTag(CATALOG_TAG); // its stock is back on sale
   const refund = await refundCancelledOrder(id);
   if (!refund) back(id, "cancelled");
@@ -90,9 +99,10 @@ export async function cancelOrderAction(formData: FormData) {
 
 /** Retries the refund for a cancelled online order (after a failed attempt). */
 export async function retryCancelRefundAction(formData: FormData) {
-  await requireAdmin();
+  const admin = await requireAdmin();
   const id = orderIdFrom(formData);
   const refund = await refundCancelledOrder(id);
+  if (refund) await admin.audit("order.refund_retry", "order", id, { ok: refund.ok });
   if (!refund) back(id, "invalid");
   else if (!refund.ok) back(id, "refund-failed", refund.error);
   else {
@@ -109,11 +119,12 @@ async function getOrderTotal(id: string) {
 }
 
 export async function approveReturnAction(formData: FormData) {
-  await requireAdmin();
+  const admin = await requireAdmin();
   const id = orderIdFrom(formData);
   const returnId = returnIdFrom(formData);
   const text = note(formData);
   if (!returnId || !(await approveReturn(returnId, text))) back(id, "invalid");
+  await admin.audit("return.approve", "return", returnId, { orderId: id });
   after(async () => {
     const ret = await getReturn(returnId);
     if (ret) await sendReturnUpdate(id, "approved", { amount: ret.amount, note: text });
@@ -122,11 +133,12 @@ export async function approveReturnAction(formData: FormData) {
 }
 
 export async function rejectReturnAction(formData: FormData) {
-  await requireAdmin();
+  const admin = await requireAdmin();
   const id = orderIdFrom(formData);
   const returnId = returnIdFrom(formData);
   const text = note(formData);
   if (!returnId || !(await rejectReturn(returnId, text))) back(id, "invalid");
+  await admin.audit("return.reject", "return", returnId, { orderId: id });
   after(async () => {
     const ret = await getReturn(returnId);
     if (ret) await sendReturnUpdate(id, "rejected", { amount: ret.amount, note: text });
@@ -135,21 +147,23 @@ export async function rejectReturnAction(formData: FormData) {
 }
 
 export async function receiveReturnAction(formData: FormData) {
-  await requireAdmin();
+  const admin = await requireAdmin();
   const id = orderIdFrom(formData);
   const returnId = returnIdFrom(formData);
   const restock = formData.get("restock") === "on";
   if (!returnId || !(await receiveReturn(returnId, restock))) back(id, "invalid");
+  await admin.audit("return.receive", "return", returnId, { orderId: id, restock });
   if (restock) updateTag(CATALOG_TAG);
   back(id, restock ? "return-received-restocked" : "return-received");
 }
 
 export async function refundReturnAction(formData: FormData) {
-  await requireAdmin();
+  const admin = await requireAdmin();
   const id = orderIdFrom(formData);
   const returnId = returnIdFrom(formData);
   if (!returnId) back(id, "invalid");
   const res = await refundReturn(id, returnId, String(formData.get("reference") ?? ""));
+  await admin.audit("return.refund", "return", returnId, { orderId: id, ok: res.ok });
   if (!res.ok) back(id, "refund-failed", res.error);
   else {
     after(async () => {

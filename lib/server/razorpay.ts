@@ -77,3 +77,9 @@ export function verifyWebhookSignature(rawBody: string, signature: string) {
   const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
   return safeEqualHex(expected, signature);
 }
+
+/** Which Razorpay environment the configured keys belong to ("off" when not configured). */
+export function paymentMode(): "test" | "live" | "off" {
+  if (!isRazorpayConfigured()) return "off";
+  return razorpayKeyId().startsWith("rzp_live_") ? "live" : "test";
+}

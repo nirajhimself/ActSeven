@@ -415,3 +415,62 @@ model Refund {
   @@index([orderId], map: "refunds_order_idx")
   @@map("refunds")
 }
+
+// ---------------------------------------------------------------- admin
+
+/** Signed-in admin sessions. id is the SHA-256 of the cookie token; the raw token is never stored. */
+model AdminSession {
+  id         String   @id
+  username   String
+  ip         String?
+  userAgent  String?  @map("user_agent")
+  expiresAt  DateTime @map("expires_at") @db.Timestamptz(6)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastSeenAt DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+
+  @@index([expiresAt])
+  @@map("admin_sessions")
+}
+
+/** Admin sign-in attempts, used to lock out repeated failures from the same address. */
+model AdminLoginAttempt {
+  id          BigInt   @id @default(autoincrement())
+  ip          String
+  success     Boolean
+  attemptedAt DateTime @default(now()) @map("attempted_at") @db.Timestamptz(6)
+
+  @@index([ip, attemptedAt(sort: Desc)])
+  @@map("admin_login_attempts")
+}
+
+/** Who changed what in the admin. */
+model AdminAuditLog {
+  id         BigInt   @id @default(autoincrement())
+  username   String
+  action     String
+  targetType String   @map("target_type")
+  targetId   String?  @map("target_id")
+  detail     Json?
+  ip         String?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([createdAt(sort: Desc)])
+  @@index([targetType, targetId])
+  @@map("admin_audit_log")
+}
+
+// ---------------------------------------------------------------- payment notifications
+
+/** Each processed payment-provider notification, so a repeated delivery is ignored. */
+model PaymentEvent {
+  /** Provider's event id (Razorpay: x-razorpay-event-id). */
+  id         String   @id
+  provider   String
+  event      String
+  /** processed | ignored | rejected */
+  outcome    String
+  note       String?
+  receivedAt DateTime @default(now()) @map("received_at") @db.Timestamptz(6)
+
+  @@map("payment_events")
+}

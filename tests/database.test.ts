@@ -9,7 +9,7 @@ import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 import { Prisma } from "@prisma/client";
-import { checkAdminAuth } from "@/lib/admin-auth";
+import { checkAdminCredentials } from "@/lib/admin-auth";
 import { deleteAddress, listAddresses, listCustomerOrders, saveAddress, setDefaultAddress } from "@/lib/server/customers";
 import { db } from "@/lib/server/db";
 import { OutOfStockError } from "@/lib/server/inventory";
@@ -289,14 +289,13 @@ describe("unauthorised writes are rejected", () => {
     process.env.ADMIN_USER = "admin";
     process.env.ADMIN_PASSWORD = "correct-horse-battery";
     try {
-      const basic = (u: string, p: string) => `Basic ${btoa(`${u}:${p}`)}`;
-      assert.equal(checkAdminAuth(null), false);
-      assert.equal(checkAdminAuth(basic("admin", "wrong-password")), false);
-      assert.equal(checkAdminAuth(basic("someone", "correct-horse-battery")), false);
-      assert.equal(checkAdminAuth("Bearer anything"), false);
-      assert.equal(checkAdminAuth(basic("admin", "correct-horse-battery")), true);
+      assert.equal(checkAdminCredentials(undefined, undefined), false);
+      assert.equal(checkAdminCredentials("admin", "wrong-password"), false);
+      assert.equal(checkAdminCredentials("someone", "correct-horse-battery"), false);
+      assert.equal(checkAdminCredentials("admin", ["correct-horse-battery"]), false, "non-string input is rejected");
+      assert.equal(checkAdminCredentials("admin", "correct-horse-battery"), true);
       process.env.ADMIN_PASSWORD = "short";
-      assert.equal(checkAdminAuth(basic("admin", "short")), false, "admin stays disabled with a weak password");
+      assert.equal(checkAdminCredentials("admin", "short"), false, "admin stays disabled with a weak password");
     } finally {
       process.env.ADMIN_USER = saved.user;
       process.env.ADMIN_PASSWORD = saved.pass;

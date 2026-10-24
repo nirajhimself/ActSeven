@@ -20,7 +20,8 @@ export async function generateStaticParams() {
 
 export async function generateMetadata({ params }: PageProps<"/collections/[slug]">): Promise<Metadata> {
   const found = await findCollection((await params).slug);
-  return found ? { title: found.collection.title, description: found.collection.description } : {};
+  // Missing: keep the not-found page out of search results (see products/[slug]).
+  return found ? { title: found.collection.title, description: found.collection.description } : { title: "Not found", robots: { index: false, follow: false } };
 }
 
 // The page itself stays synchronous so its skeleton is part of the prefetched

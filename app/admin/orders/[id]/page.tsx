@@ -18,6 +18,7 @@ import { refundStatusLabel, returnStatusLabel, returnStatusTone, returnWindowEnd
 import { requireAdmin } from "@/lib/server/admin";
 import { isDatabaseConfigured } from "@/lib/server/db";
 import { getOrder, type Order } from "@/lib/server/orders";
+import { prisma } from "@/lib/server/prisma";
 import { listRefunds, listReturnsForOrder } from "@/lib/server/returns";
 
 export const metadata: Metadata = { title: "Order · Admin", robots: { index: false, follow: false } };
@@ -62,7 +63,11 @@ async function AdminOrder({
   if (!order) notFound();
   const msg = typeof sp.msg === "string" ? messages[sp.msg] : undefined;
   const errorDetail = typeof sp.error === "string" ? sp.error.slice(0, 300) : undefined;
-  const [returns, refunds] = await Promise.all([listReturnsForOrder(order.id), listRefunds(order.id)]);
+  const [returns, refunds, payments] = await Promise.all([
+    listReturnsForOrder(order.id),
+    listRefunds(order.id),
+    prisma().payment.findMany({ where: { orderId: order.id }, orderBy: { createdAt: "asc" } }),
+  ]);
 
   const canShip = order.status === "paid" || order.status === "cod_confirmed" || order.status === "shipped";
   const canDeliver = order.status === "shipped";
@@ -208,6 +213,17 @@ async function AdminOrder({
               {order.shippedAt ? <div>Shipped: {dateFmt.format(order.shippedAt)}</div> : null}
               {order.deliveredAt ? <div>Delivered: {dateFmt.format(order.deliveredAt)}</div> : null}
             </dl>
+            {payments.length ? (
+              <ul className="mt-3 space-y-1 border-t border-obsidian/10 pt-3 text-xs text-graphite">
+                {payments.map((p) => (
+                  <li key={p.id}>
+                    {p.provider === "cod" ? "Cash on delivery" : "Razorpay"} · <strong className="font-medium">{p.status}</strong> ·{" "}
+                    <span className="tabular-nums">{formatINR(p.amount)}</span>
+                    <span className="block text-taupe">updated {dateFmt.format(p.updatedAt)}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </section>
           <Link href={`/orders/${order.id}`} className="inline-block text-xs underline underline-offset-4">
             View customer page

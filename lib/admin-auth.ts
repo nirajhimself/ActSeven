@@ -1,6 +1,7 @@
 /**
- * HTTP Basic auth for /admin. Uses only Web APIs so it runs in Proxy and on
- * the server. Admin is disabled entirely until ADMIN_PASSWORD is set.
+ * Admin credentials check. The admin is disabled entirely until
+ * ADMIN_PASSWORD is set to 12+ characters; the username is ADMIN_USER
+ * (default "admin"). Uses only Web APIs so it also runs in Proxy.
  */
 
 function constantTimeEqual(a: string, b: string) {
@@ -15,19 +16,15 @@ export function isAdminEnabled() {
   return (process.env.ADMIN_PASSWORD ?? "").length >= 12;
 }
 
-export function checkAdminAuth(authorization: string | null) {
-  if (!isAdminEnabled() || !authorization?.startsWith("Basic ")) return false;
-  let decoded: string;
-  try {
-    decoded = atob(authorization.slice(6));
-  } catch {
-    return false;
-  }
-  const sep = decoded.indexOf(":");
-  if (sep < 0) return false;
-  const user = decoded.slice(0, sep);
-  const pass = decoded.slice(sep + 1);
-  const userOk = constantTimeEqual(user, process.env.ADMIN_USER || "admin");
-  const passOk = constantTimeEqual(pass, process.env.ADMIN_PASSWORD ?? "");
+export const adminUsername = () => process.env.ADMIN_USER || "admin";
+
+/** Compares a sign-in attempt with the configured credentials (constant time, both always checked). */
+export function checkAdminCredentials(username: unknown, password: unknown) {
+  if (!isAdminEnabled() || typeof username !== "string" || typeof password !== "string") return false;
+  const userOk = constantTimeEqual(username, adminUsername());
+  const passOk = constantTimeEqual(password, process.env.ADMIN_PASSWORD ?? "");
   return userOk && passOk;
 }
+
+/** Name of the admin session cookie (scoped to /admin). */
+export const ADMIN_COOKIE = "act_vii_admin";

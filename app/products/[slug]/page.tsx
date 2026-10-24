@@ -22,7 +22,9 @@ export async function generateStaticParams() {
 export async function generateMetadata({ params }: PageProps<"/products/[slug]">): Promise<Metadata> {
   const [{ slug }, { products }] = await Promise.all([params, getCatalog()]);
   const product = products.find((p) => p.slug === slug);
-  if (!product) return {};
+  // Missing or unpublished: keep the not-found page out of search results
+  // (the first request for a new URL can be served with status 200 while streaming).
+  if (!product) return { title: "Not found", robots: { index: false, follow: false } };
   return {
     title: product.name,
     description: `${product.summary} ${formatINR(product.price)}.`,
