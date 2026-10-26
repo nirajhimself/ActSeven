@@ -17,13 +17,13 @@ export function AdminSignInForm({ next }: { next: string }) {
         <label htmlFor={`${id}-user`} className="mb-1.5 block text-xs">
           Username
         </label>
-        <input id={`${id}-user`} name="username" required autoComplete="username" className={input} aria-invalid={Boolean(state.error)} />
+        <input id={`${id}-user`} name="username" required autoComplete="username" className={input} aria-invalid={Boolean(state.error)} suppressHydrationWarning />
       </div>
       <div>
         <label htmlFor={`${id}-pass`} className="mb-1.5 block text-xs">
           Password
         </label>
-        <input id={`${id}-pass`} name="password" type="password" required autoComplete="current-password" className={input} aria-invalid={Boolean(state.error)} />
+        <input id={`${id}-pass`} name="password" type="password" required autoComplete="current-password" className={input} aria-invalid={Boolean(state.error)} suppressHydrationWarning />
       </div>
       <p id={`${id}-error`} role="alert" className="min-h-4 text-xs text-[#9b2c1f]">
         {state.error ?? ""}
@@ -31,6 +31,7 @@ export function AdminSignInForm({ next }: { next: string }) {
       <button
         type="submit"
         disabled={pending}
+        suppressHydrationWarning
         className="label inline-flex min-h-12 w-full items-center justify-center gap-3 bg-obsidian px-6 text-ivory transition-colors hover:bg-graphite disabled:opacity-45"
       >
         {pending ? "Signing in…" : "Sign in"}
