@@ -17,9 +17,11 @@ import {
   DuplicateCheckoutError,
   findOrderByCheckoutToken,
   markOrderPaid,
+  OrderLimitError,
   releaseUnpaidOrder,
   type OrderItemInput,
 } from "@/lib/server/orders";
+import { clientIp } from "@/lib/server/client-ip";
 import { clearCustomerCart } from "@/lib/server/cart";
 import { createRazorpayOrder, isRazorpayConfigured, razorpayKeyId, verifyPaymentSignature } from "@/lib/server/razorpay";
 import { policy } from "@/lib/site";
@@ -221,6 +223,7 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
       totals,
       customerId: account?.id,
       checkoutToken,
+      clientIp: await clientIp(),
     });
     // Stock changed: refresh cached availability on listings (stale-while-revalidate).
     revalidateTag(CATALOG_TAG, "max");
@@ -272,6 +275,15 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
     if (err instanceof OutOfStockError) {
       const item = items.find((i) => i.slug === err.slug && i.colour === err.colour && i.size === err.size);
       return { ok: false, error: outOfStockMessage(item?.name ?? "An item in your bag", err.colour, err.size, err.available) };
+    }
+    if (err instanceof OrderLimitError) {
+      return {
+        ok: false,
+        error:
+          err.reason === "cod"
+            ? "You already have cash-on-delivery orders waiting to ship. Please pay online for this order, or wait until those are on their way."
+            : "Too many orders have been placed from your connection in the last hour. Please try again later.",
+      };
     }
     console.error("[checkout] placeOrder failed", err);
     return { ok: false, error: "We couldn't place your order just now. Nothing has been charged — please try again." };

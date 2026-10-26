@@ -12,7 +12,16 @@ import { codAvailable, computeTotals } from "@/lib/pricing";
 import { policy } from "@/lib/site";
 import { checkCart, checkLines, cleanLines, clearCustomerCart, getCustomerCart, mergeCartLines, saveCustomerCart } from "@/lib/server/cart";
 import { db } from "@/lib/server/db";
-import { createOrder, DuplicateCheckoutError, findOrderByCheckoutToken, orderNumber, type OrderItemInput } from "@/lib/server/orders";
+import {
+  createOrder,
+  DuplicateCheckoutError,
+  findOrderByCheckoutToken,
+  MAX_OPEN_COD_ORDERS,
+  MAX_ORDERS_PER_IP_PER_HOUR,
+  OrderLimitError,
+  orderNumber,
+  type OrderItemInput,
+} from "@/lib/server/orders";
 import { prisma } from "@/lib/server/prisma";
 import { getCheckoutVariants } from "@/lib/server/products";
 
@@ -173,6 +182,12 @@ describe("account carts", () => {
 
 describe("order creation", () => {
   const customer = { email: "shop@example.com", phone: "+919876543210", name: "Shop Test", address1: "1 Test Lane", address2: "", city: "Pune", state: "Maharashtra", pincode: "411001", giftNote: "" };
+  /** A fresh shopper per order, so the open cash-on-delivery limit never interferes with what a test checks. */
+  let shoppers = 0;
+  const shopper = () => {
+    const n = String(++shoppers).padStart(5, "0");
+    return { ...customer, phone: `+9192000${n}`, email: `shopper-${n}@shop.example.com` };
+  };
 
   async function line(size: string, quantity = 1): Promise<OrderItemInput> {
     const colour = await firstColour(PRINT);
@@ -187,7 +202,7 @@ describe("order creation", () => {
     const token = `test-${randomUUID().replace(/-/g, "")}`;
     const totals = computeTotals(item.unitPrice * 2, "cod");
 
-    const results = await Promise.allSettled([1, 2, 3].map(() => createOrder({ customer, items: [item], method: "cod", totals, checkoutToken: token })));
+    const results = await Promise.allSettled([1, 2, 3].map(() => createOrder({ customer: shopper(), items: [item], method: "cod", totals, checkoutToken: token })));
     const created = results.filter((r) => r.status === "fulfilled");
     assert.equal(created.length, 1, "exactly one order");
     assert.ok(results.filter((r) => r.status === "rejected").every((r) => (r as PromiseRejectedResult).reason instanceof DuplicateCheckoutError));
@@ -204,11 +219,47 @@ describe("order creation", () => {
     await stock(PRINT, colour, "XS", 5);
     const item = await line("XS", 1);
     const totals = computeTotals(item.unitPrice, "cod");
-    const { id } = await createOrder({ customer, items: [item], method: "cod", totals });
+    const { id } = await createOrder({ customer: shopper(), items: [item], method: "cod", totals });
     const order = await prisma().order.findUniqueOrThrow({ where: { id }, include: { payments: true, items: true } });
     assert.deepEqual([order.subtotal, order.shipping, order.codFee, order.total], [totals.subtotal, totals.shipping, totals.codFee, totals.total]);
     assert.equal(order.items[0].sku, item.sku);
     assert.deepEqual(order.payments.map((p) => [p.provider, p.status, p.amount]), [["cod", "pending", totals.total]]);
+  });
+
+  test("one phone number or email can have at most two open cash-on-delivery orders, even in a burst", async () => {
+    const colour = await firstColour(PRINT);
+    await stock(PRINT, colour, "XXL", 20);
+    const item = await line("XXL", 1);
+    const totals = computeTotals(item.unitPrice, "cod");
+    const buyer = shopper();
+    const results = await Promise.allSettled(Array.from({ length: 5 }, () => createOrder({ customer: buyer, items: [item], method: "cod", totals })));
+    assert.equal(results.filter((r) => r.status === "fulfilled").length, MAX_OPEN_COD_ORDERS);
+    assert.ok(results.filter((r) => r.status === "rejected").every((r) => (r as PromiseRejectedResult).reason instanceof OrderLimitError));
+    const { quantity } = await prisma().inventory.findFirstOrThrow({ where: { variant: { sku: item.sku } } });
+    assert.equal(quantity, 20 - MAX_OPEN_COD_ORDERS, "refused orders hold no stock");
+
+    // The same email with another phone is also held back; paying online still works.
+    await assert.rejects(createOrder({ customer: { ...buyer, phone: "+919199999999" }, items: [item], method: "cod", totals }), OrderLimitError);
+    assert.ok(await createOrder({ customer: buyer, items: [item], method: "razorpay", totals: computeTotals(item.unitPrice, "razorpay") }));
+
+    // Once one ships, there's room for another.
+    const open = await prisma().order.findFirstOrThrow({ where: { email: buyer.email, status: "cod_confirmed" } });
+    await prisma().order.update({ where: { id: open.id }, data: { status: "shipped" } });
+    assert.ok(await createOrder({ customer: buyer, items: [item], method: "cod", totals }));
+  });
+
+  test("one address can place at most the allowed number of orders an hour", async () => {
+    const colour = await firstColour(PRINT);
+    await stock(PRINT, colour, "L", 50);
+    const item = await line("L", 1);
+    const totals = computeTotals(item.unitPrice, "razorpay");
+    const ip = "198.51.100.77";
+    const results = await Promise.allSettled(
+      Array.from({ length: MAX_ORDERS_PER_IP_PER_HOUR + 3 }, () => createOrder({ customer: shopper(), items: [item], method: "razorpay", totals, clientIp: ip })),
+    );
+    assert.equal(results.filter((r) => r.status === "fulfilled").length, MAX_ORDERS_PER_IP_PER_HOUR);
+    assert.ok(results.filter((r) => r.status === "rejected").every((r) => (r as PromiseRejectedResult).reason instanceof OrderLimitError));
+    assert.ok(await createOrder({ customer: shopper(), items: [item], method: "razorpay", totals, clientIp: "198.51.100.78" }), "other addresses are unaffected");
   });
 
   test("order numbers use the date in India", () => {

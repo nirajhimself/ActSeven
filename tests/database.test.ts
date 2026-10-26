@@ -31,6 +31,12 @@ if (!["127.0.0.1", "localhost"].includes(url.hostname) || process.env.ACT_VII_SA
 }
 
 const customer = { email: "test@example.com", phone: "+919876543210", name: "Test Customer", address1: "1 Test Lane", address2: "", city: "Pune", state: "Maharashtra", pincode: "411001", giftNote: "" };
+/** A fresh shopper per order, so the open cash-on-delivery limit never interferes with what a test checks. */
+let shoppers = 0;
+const shopper = () => {
+  const n = String(++shoppers).padStart(5, "0");
+  return { ...customer, phone: `+9191000${n}`, email: `shopper-${n}@db.example.com` };
+};
 const totals = (subtotal: number) => ({ subtotal, shipping: 0, codFee: 0, total: subtotal });
 
 /** A real variant from the seeded catalogue, as checkout would price it. */
@@ -207,7 +213,7 @@ describe("stock and orders", () => {
     await setStock("A7-001-NAVY-S", 1);
     const line = await item("classic-oxford-shirt", "Navy", "S", 1);
     const results = await Promise.allSettled(
-      Array.from({ length: 4 }, () => createOrder({ customer, items: [line], method: "cod", totals: totals(line.unitPrice) })),
+      Array.from({ length: 4 }, () => createOrder({ customer: shopper(), items: [line], method: "cod", totals: totals(line.unitPrice) })),
     );
     assert.equal(results.filter((r) => r.status === "fulfilled").length, 1);
     assert.ok(results.filter((r) => r.status === "rejected").every((r) => (r as PromiseRejectedResult).reason instanceof OutOfStockError));
@@ -218,7 +224,7 @@ describe("stock and orders", () => {
   test("order lines keep their name, SKU and price after the product changes", async () => {
     await setStock("A7-006-CHARCOAL-30", 5);
     const line = await item("wide-leg-trouser", "Charcoal", "30", 2);
-    const { id } = await createOrder({ customer, items: [line], method: "cod", totals: totals(line.unitPrice * 2) });
+    const { id } = await createOrder({ customer: shopper(), items: [line], method: "cod", totals: totals(line.unitPrice * 2) });
 
     await prisma().product.update({ where: { slug: "wide-leg-trouser" }, data: { name: "Renamed Trouser", price: 9999 } });
     await prisma().variant.update({ where: { sku: "A7-006-CHARCOAL-30" }, data: { sku: "A7-006-CHARCOAL-30-NEW" } });
@@ -238,7 +244,7 @@ describe("stock and orders", () => {
 
   test("order status comes from the server, never from the request", async () => {
     await setStock("A7-001-NAVY-M", 10);
-    const cod = await createOrder({ customer, items: [await item("classic-oxford-shirt", "Navy", "M")], method: "cod", totals: totals(2499) });
+    const cod = await createOrder({ customer: shopper(), items: [await item("classic-oxford-shirt", "Navy", "M")], method: "cod", totals: totals(2499) });
     const online = await createOrder({ customer, items: [await item("classic-oxford-shirt", "Navy", "M")], method: "razorpay", totals: totals(2499) });
     assert.equal(cod.status, "cod_confirmed");
     assert.equal(online.status, "pending_payment", "an online order starts unpaid");
@@ -277,7 +283,7 @@ describe("customer data isolation", () => {
   test("order history only shows the customer's own orders", async () => {
     await setStock("A7-001-NAVY-L", 5);
     const line = await item("classic-oxford-shirt", "Navy", "L");
-    const own = await createOrder({ customer: { ...customer, email: "a@example.com" }, items: [line], method: "cod", totals: totals(2499), customerId: a });
+    const own = await createOrder({ customer: { ...shopper(), email: "a@example.com" }, items: [line], method: "cod", totals: totals(2499), customerId: a });
     assert.ok((await listCustomerOrders({ id: a, email: "a@example.com" })).some((o) => o.id === own.id));
     assert.ok(!(await listCustomerOrders({ id: b, email: "b@example.com" })).some((o) => o.id === own.id));
   });

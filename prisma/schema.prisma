@@ -310,6 +310,8 @@ model Order {
   customer                Customer?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
   /// True while the order holds stock; flipped when stock is returned so restores are idempotent.
   stockReserved           Boolean     @default(false) @map("stock_reserved")
+  /// Address the order was placed from (per-address order limit).
+  clientIp                String?     @map("client_ip")
   createdAt               DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt               DateTime    @default(now()) @map("updated_at") @db.Timestamptz(6)
   items                   OrderItem[]
@@ -318,6 +320,7 @@ model Order {
   refunds                 Refund[]
 
   @@index([createdAt(sort: Desc)], map: "orders_created_at_idx")
+  @@index([clientIp, createdAt(sort: Desc)], map: "orders_client_ip_idx")
   @@index([status], map: "orders_status_idx")
   @@index([customerId], map: "orders_customer_idx")
   @@map("orders")

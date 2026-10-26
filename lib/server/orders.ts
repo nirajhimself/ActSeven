@@ -79,6 +79,18 @@ const isUniqueViolation = (err: unknown, constraint: string) =>
 /** Thrown when an order with the same checkout token already exists (a retried submission). */
 export class DuplicateCheckoutError extends Error {}
 
+/** Orders one client address may place per hour (generous: mobile networks share addresses). */
+export const MAX_ORDERS_PER_IP_PER_HOUR = 10;
+/** Cash-on-delivery orders one phone number or email may have open (placed, not yet shipped or cancelled). */
+export const MAX_OPEN_COD_ORDERS = 2;
+
+/** Thrown when a new order would exceed one of the limits above (stops scripted fake orders holding stock). */
+export class OrderLimitError extends Error {
+  constructor(public readonly reason: "ip" | "cod") {
+    super(`Order limit reached (${reason})`);
+  }
+}
+
 export async function createOrder(input: {
   customer: CustomerInput;
   items: OrderItemInput[];
@@ -87,6 +99,8 @@ export async function createOrder(input: {
   customerId?: string | null;
   /** One per checkout attempt; a second order with the same token is refused. */
   checkoutToken?: string | null;
+  /** The shopper's address, for the per-address limit ("unknown" or absent skips it). */
+  clientIp?: string | null;
 }): Promise<{ id: string; number: string; status: OrderStatus }> {
   // A clash on the random part of the order number is very unlikely; retry a few times if it happens.
   for (let attempt = 1; ; attempt++) {
@@ -104,15 +118,32 @@ async function insertOrder(input: Parameters<typeof createOrder>[0], number: str
   const id = randomUUID();
   const status: OrderStatus = input.method === "cod" ? "cod_confirmed" : "pending_payment";
   const c = input.customer;
+  const ip = input.clientIp && input.clientIp !== "unknown" ? input.clientIp.slice(0, 64) : null;
 
   await sql.begin(async (tx) => {
+    // Limits are checked under advisory locks (address first, then phone, so
+    // two checkouts never wait on each other in opposite order), so a burst
+    // of parallel submissions can't all pass the count.
+    if (ip) {
+      await tx`select pg_advisory_xact_lock(hashtext(${`order_ip:${ip}`}))`;
+      const [{ recent }] = await tx`
+        select count(*)::int as recent from orders where client_ip = ${ip} and created_at > now() - interval '1 hour'`;
+      if (recent >= MAX_ORDERS_PER_IP_PER_HOUR) throw new OrderLimitError("ip");
+    }
+    if (input.method === "cod") {
+      await tx`select pg_advisory_xact_lock(hashtext(${`order_cod:${c.phone}`}))`;
+      const [{ open }] = await tx`
+        select count(*)::int as open from orders
+         where status = 'cod_confirmed' and (phone = ${c.phone} or email = ${c.email})`;
+      if (open >= MAX_OPEN_COD_ORDERS) throw new OrderLimitError("cod");
+    }
     await tx`
       insert into orders (id, number, status, payment_method, email, phone, name, address1, address2, city, state, pincode,
-                          gift_note, subtotal, shipping, cod_fee, total, customer_id, stock_reserved, checkout_token)
+                          gift_note, subtotal, shipping, cod_fee, total, customer_id, stock_reserved, checkout_token, client_ip)
       values (${id}, ${number}, ${status}, ${input.method}, ${c.email}, ${c.phone}, ${c.name}, ${c.address1},
               ${c.address2 || null}, ${c.city}, ${c.state}, ${c.pincode}, ${c.giftNote || null},
               ${input.totals.subtotal}, ${input.totals.shipping}, ${input.totals.codFee}, ${input.totals.total},
-              ${input.customerId ?? null}, true, ${input.checkoutToken ?? null})`;
+              ${input.customerId ?? null}, true, ${input.checkoutToken ?? null}, ${ip})`;
     // Throws OutOfStockError (rolling back the whole order) if a variant ran out.
     await reserveStock(
       tx,
