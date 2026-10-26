@@ -29,6 +29,9 @@ export function connectionOptions(url: string): postgres.Options<Record<string, 
     // Recycle connections and give up on hung connects instead of waiting forever.
     max_lifetime: 60 * 10,
     connect_timeout: 20,
+    // Probe idle sockets after 10 s (default 60) so a connection silently
+    // dropped by the network or a distant pooler is noticed quickly.
+    keep_alive: 10,
     onnotice: () => {},
     // Hosted databases (Supabase, Neon) require TLS.
     ssl: local ? false : "require",
@@ -46,4 +49,15 @@ export function db() {
   if (!url || !isDatabaseConfigured()) throw new Error("DATABASE_URL is not configured");
   globalThis.__actViiSql ??= postgres(url, connectionOptions(url));
   return globalThis.__actViiSql;
+}
+
+/**
+ * Discards the pool so the next db() call starts with fresh connections.
+ * For when the pool stops answering (e.g. every connection is stuck on a
+ * socket the network dropped) — otherwise it stays stuck until a restart.
+ */
+export function resetDb() {
+  const stale = globalThis.__actViiSql;
+  globalThis.__actViiSql = undefined;
+  stale?.end({ timeout: 0 }).catch(() => {});
 }

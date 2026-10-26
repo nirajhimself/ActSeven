@@ -1,6 +1,7 @@
 import "server-only";
 import { createHash, createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
+import { connection } from "next/server";
 import { cache } from "react";
 import { db, isDatabaseConfigured } from "./db";
 
@@ -90,6 +91,10 @@ export const getCurrentCustomer = cache(async (): Promise<Customer | null> => {
   if (!isAuthConfigured()) return null;
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token || token.length > 100) return null;
+  // Customer data is per-request and private: never read it during a
+  // (runtime) prerender. This also keeps the database driver, which uses
+  // Math.random() when it opens a connection, out of prerendering.
+  await connection();
   const [row] = await db()`
     select c.id, c.email, c.name, c.phone
       from sessions s join customers c on c.id = s.customer_id

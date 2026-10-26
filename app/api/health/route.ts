@@ -1,6 +1,6 @@
 import { connection } from "next/server";
 import { checkConfig, hasErrors } from "@/lib/server/config";
-import { db, isDatabaseConfigured } from "@/lib/server/db";
+import { db, isDatabaseConfigured, resetDb } from "@/lib/server/db";
 
 /**
  * Health check for uptime monitors: GET /api/health → 200 "ok" or 503
@@ -16,6 +16,9 @@ export async function GET() {
       database = "ok";
     } catch {
       database = "unreachable";
+      // A fresh pool lets the store recover without a restart; uptime
+      // monitors polling this route make that automatic.
+      resetDb();
     }
   }
   const configOk = !hasErrors(checkConfig());
