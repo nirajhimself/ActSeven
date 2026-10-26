@@ -210,8 +210,11 @@ model LoginCode {
   expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
   consumedAt DateTime? @map("consumed_at") @db.Timestamptz(6)
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  /// Client address that requested the code (per-address rate limit).
+  ip         String?
 
   @@index([email, createdAt(sort: Desc)], map: "login_codes_email_idx")
+  @@index([ip, createdAt(sort: Desc)], map: "login_codes_ip_idx")
   @@map("login_codes")
 }
 

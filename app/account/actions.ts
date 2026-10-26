@@ -16,6 +16,7 @@ import {
   updateProfile,
   type Address,
 } from "@/lib/server/customers";
+import { clientIp } from "@/lib/server/client-ip";
 import { isEmailConfigured, sendLoginCode } from "@/lib/server/email";
 
 const devMode = process.env.NODE_ENV === "development";
@@ -36,7 +37,7 @@ export async function requestLoginCodeAction(rawEmail: string): Promise<{ ok: tr
   }
 
   try {
-    const issued = await issueLoginCode(email);
+    const issued = await issueLoginCode(email, await clientIp());
     if (!issued.ok) return { ok: false, error: "Too many codes requested. Please wait an hour and try again." };
     if (isEmailConfigured()) {
       await sendLoginCode(email, issued.code);

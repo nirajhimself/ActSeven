@@ -1,14 +1,11 @@
 import "server-only";
-import { cookies, headers } from "next/headers";
+import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { ADMIN_COOKIE, isAdminEnabled } from "@/lib/admin-auth";
 import { audit, getAdminSession } from "./admin-session";
+import { clientIp } from "./client-ip";
 
-/** The client's address (first X-Forwarded-For hop set by the host's proxy), for lockout and audit. */
-export async function clientIp() {
-  const h = await headers();
-  return h.get("x-forwarded-for")?.split(",")[0]?.trim() || h.get("x-real-ip") || "unknown";
-}
+export { clientIp };
 
 /**
  * Server-side admin check for every admin page and action (proxy.ts only
