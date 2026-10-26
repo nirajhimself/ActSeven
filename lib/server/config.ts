@@ -59,7 +59,11 @@ export function checkConfig(env: Env = process.env): ConfigFinding[] {
 
   // Email
   if (!set(env.RESEND_API_KEY) || !set(env.EMAIL_FROM)) {
-    add("warning", "RESEND_API_KEY", "Email isn't configured: no order emails, and customers can't receive sign-in codes.");
+    add(
+      production ? "error" : "warning",
+      "RESEND_API_KEY",
+      "Email isn't configured (RESEND_API_KEY and EMAIL_FROM): no order emails, and customer sign-in is off.",
+    );
   }
 
   // Scheduled job

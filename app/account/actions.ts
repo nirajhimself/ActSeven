@@ -23,11 +23,17 @@ const devMode = process.env.NODE_ENV === "development";
 // ---------------------------------------------------------------- sign-in
 
 export async function requestLoginCodeAction(rawEmail: string): Promise<{ ok: true; devCode?: string } | { ok: false; error: string }> {
-  if (!isAuthConfigured()) return { ok: false, error: "Sign-in isn't available yet." };
+  if (!isAuthConfigured()) {
+    console.error("[auth] sign-in is off: DATABASE_URL or AUTH_SECRET (32+ chars) is not set");
+    return { ok: false, error: "Sign-in isn't available yet." };
+  }
   const email = normaliseEmail(rawEmail);
   if (!email) return { ok: false, error: "Enter a valid email address." };
   // In production a code can only be delivered by email.
-  if (!isEmailConfigured() && !devMode) return { ok: false, error: "Sign-in isn't available yet." };
+  if (!isEmailConfigured() && !devMode) {
+    console.error("[auth] sign-in is off: RESEND_API_KEY and EMAIL_FROM must be set to email codes");
+    return { ok: false, error: "Sign-in isn't available yet." };
+  }
 
   try {
     const issued = await issueLoginCode(email);

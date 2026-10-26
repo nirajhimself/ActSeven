@@ -52,6 +52,11 @@ describe("production configuration", () => {
     assert.ok(keys({ ...good, ADMIN_PASSWORD: "aaaaaaaaaaaaaa" }, "warning").includes("ADMIN_PASSWORD"));
   });
 
+  test("missing email is an error in production (sign-in needs it) and a warning in development", () => {
+    assert.ok(keys({ ...good, EMAIL_FROM: "" }, "error").includes("RESEND_API_KEY"));
+    assert.ok(keys({ ...good, NODE_ENV: "development", RESEND_API_KEY: "" }, "warning").includes("RESEND_API_KEY"));
+  });
+
   test("findings never contain secret values", () => {
     const secretish = { ...good, ADMIN_PASSWORD: "s3cr3t-val", AUTH_SECRET: "tiny-secret-value", RAZORPAY_KEY_SECRET: "" };
     const text = JSON.stringify(checkConfig(secretish));
