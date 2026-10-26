@@ -6,11 +6,13 @@
 import assert from "node:assert/strict";
 import { createHash, createHmac, randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
-import { adminSignIn, audit, endAdminSession, getAdminSession, lockoutMinutes, MAX_FAILURES } from "@/lib/server/admin-session";
+import { adminSignIn, audit, endAdminSession, getAdminSession, GLOBAL_MAX_FAILURES, lockoutMinutes, MAX_FAILURES } from "@/lib/server/admin-session";
 import { isValidImageUrl, parseProductForm, saveProduct } from "@/lib/server/admin-products";
+import { issueLoginCode, MAX_CODES_PER_IP_PER_HOUR, verifyLoginCode } from "@/lib/server/auth";
 import { db } from "@/lib/server/db";
-import { attachRazorpayOrder, createOrder, getOrder } from "@/lib/server/orders";
+import { attachRazorpayOrder, cancelOrder, createOrder, getOrder } from "@/lib/server/orders";
 import { processRazorpayWebhook } from "@/lib/server/payments";
+import { refundCancelledOrder } from "@/lib/server/returns";
 import { prisma } from "@/lib/server/prisma";
 import { getCheckoutVariants, getPublicProduct, listProducts } from "@/lib/server/products";
 
@@ -55,6 +57,28 @@ describe("admin sign-in", () => {
     assert.ok((await adminSignIn("admin", PASSWORD, { ip: "203.0.113.21" })).ok);
   });
 
+  test("a burst of parallel guesses is counted one by one, so only the allowed number get through", async () => {
+    const meta = { ip: "203.0.113.25" };
+    const results = await Promise.all(Array.from({ length: 12 }, (_, i) => adminSignIn("admin", `burst-${i}`, meta)));
+    assert.ok(results.every((r) => !r.ok));
+    assert.equal(await prisma().adminLoginAttempt.count({ where: { ip: meta.ip } }), MAX_FAILURES, "guesses after the limit aren't even checked");
+  });
+
+  test("too many failures across all addresses pause sign-in for everyone", async () => {
+    const since = new Date();
+    await prisma().adminLoginAttempt.createMany({
+      data: Array.from({ length: GLOBAL_MAX_FAILURES }, (_, i) => ({ ip: `198.51.100.${i}`, success: false })),
+    });
+    try {
+      const res = await adminSignIn("admin", PASSWORD, { ip: "203.0.113.26" });
+      assert.equal(res.ok, false);
+      assert.match((res as { error: string }).error, /Too many failed attempts/);
+    } finally {
+      await prisma().adminLoginAttempt.deleteMany({ where: { ip: { startsWith: "198.51.100." }, attemptedAt: { gte: since } } });
+    }
+    assert.ok((await adminSignIn("admin", PASSWORD, { ip: "203.0.113.26" })).ok);
+  });
+
   test("sessions end on sign-out, on expiry, and when the admin username changes", async () => {
     const a = await adminSignIn("admin", PASSWORD, { ip: "203.0.113.30" });
     const b = await adminSignIn("admin", PASSWORD, { ip: "203.0.113.30" });
@@ -92,6 +116,34 @@ describe("admin sign-in", () => {
     const row = await prisma().adminAuditLog.findFirst({ where: { action: "test.action" } });
     assert.equal(row?.targetId, "42");
     assert.deepEqual(row?.detail, { note: "hello" });
+  });
+});
+
+describe("customer sign-in codes", () => {
+  before(() => {
+    process.env.AUTH_SECRET ||= "t".repeat(40);
+  });
+
+  test("parallel guesses can't exceed the attempt limit; the right code is then refused too", async () => {
+    const email = "guess@example.com";
+    const issued = await issueLoginCode(email, "203.0.113.60");
+    assert.ok(issued.ok);
+    const wrong = issued.code === "000000" ? "000001" : "000000";
+    const results = await Promise.all(Array.from({ length: 20 }, () => verifyLoginCode(email, wrong)));
+    assert.ok(results.every((r) => !r.ok));
+    const [row] = await db()`select attempts from login_codes where email = ${email} order by created_at desc limit 1`;
+    assert.equal(row.attempts, 5);
+    assert.deepEqual(await verifyLoginCode(email, issued.code), { ok: false, reason: "locked" });
+  });
+
+  test("codes are limited per email and per client address", async () => {
+    for (let i = 0; i < 5; i++) assert.ok((await issueLoginCode("limit@example.com", "203.0.113.61")).ok);
+    assert.deepEqual(await issueLoginCode("limit@example.com", "203.0.113.62"), { ok: false, reason: "rate_limited" });
+
+    const ip = "203.0.113.63";
+    for (let i = 0; i < MAX_CODES_PER_IP_PER_HOUR; i++) assert.ok((await issueLoginCode(`many-${i}@example.com`, ip)).ok);
+    assert.deepEqual(await issueLoginCode("one-more@example.com", ip), { ok: false, reason: "rate_limited" });
+    assert.ok((await issueLoginCode("one-more@example.com", "203.0.113.64")).ok, "other addresses are unaffected");
   });
 });
 
@@ -256,6 +308,106 @@ describe("Razorpay notifications", () => {
     const usd = captured(rzpOrderId, 300000, "USD");
     await processRazorpayWebhook(usd, sign(usd), "evt_usd");
     assert.equal((await getOrder(id))?.status, "pending_payment");
+  });
+
+  describe("refunds that get no clear answer from Razorpay", () => {
+    const realFetch = globalThis.fetch;
+    let posts = 0;
+    /** Fakes Razorpay: `onPost` decides the refund request, `onLookup` the refund listing. */
+    function fakeRazorpay(onPost: (refundId: string) => Response | Promise<Response>, onLookup: (refundId: string) => Response | Promise<Response>) {
+      let lastRefundId = "";
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const href = String(input);
+        if (init?.method === "POST" && href.endsWith("/refund")) {
+          posts++;
+          lastRefundId = JSON.parse(String(init.body)).notes.refund_id;
+          return onPost(lastRefundId);
+        }
+        if (href.includes("/refunds")) return onLookup(lastRefundId);
+        throw new Error(`unexpected request ${href}`);
+      }) as typeof fetch;
+    }
+    const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+    const timeout = () => Promise.reject(new DOMException("The operation was aborted due to timeout", "TimeoutError"));
+
+    before(() => {
+      process.env.RAZORPAY_KEY_ID = "rzp_test_refunds";
+      process.env.RAZORPAY_KEY_SECRET = "secret";
+    });
+    after(() => {
+      globalThis.fetch = realFetch;
+    });
+
+    async function paidThenCancelled() {
+      const { id, rzpOrderId } = await onlineOrder(2000);
+      const body = captured(rzpOrderId, 200000);
+      await processRazorpayWebhook(body, sign(body), `evt_${randomUUID()}`);
+      assert.ok(await cancelOrder(id));
+      posts = 0;
+      return id;
+    }
+    const refundsFor = (orderId: string) => prisma().refund.findMany({ where: { orderId }, orderBy: { createdAt: "asc" } });
+
+    test("a timed-out refund that Razorpay did create is recorded, not marked failed", async () => {
+      const id = await paidThenCancelled();
+      fakeRazorpay(timeout, (rid) => json({ items: [{ id: "rfnd_found", status: "processed", notes: { refund_id: rid } }] }));
+      const res = await refundCancelledOrder(id);
+      assert.ok(res?.ok);
+      const rows = await refundsFor(id);
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].status, "processed");
+      assert.equal(rows[0].razorpayRefundId, "rfnd_found");
+    });
+
+    test("a timed-out refund Razorpay never received is marked failed, and a retry goes through", async () => {
+      const id = await paidThenCancelled();
+      fakeRazorpay(timeout, () => json({ items: [] }));
+      const res = await refundCancelledOrder(id);
+      assert.ok(res && !res.ok);
+      assert.equal((await refundsFor(id))[0].status, "failed");
+
+      fakeRazorpay(() => json({ id: "rfnd_retry", status: "pending" }), () => json({ items: [] }));
+      assert.ok((await refundCancelledOrder(id))?.ok);
+      assert.deepEqual((await refundsFor(id)).map((r) => r.status), ["failed", "initiated"]);
+    });
+
+    test("when Razorpay can't be reached at all, the refund stays pending and is never sent twice", async () => {
+      const id = await paidThenCancelled();
+      fakeRazorpay(timeout, timeout);
+      const first = await refundCancelledOrder(id);
+      assert.ok(first && !first.ok);
+      assert.match(first.error, /Don't refund again/);
+      const [pending] = await refundsFor(id);
+      assert.equal(pending.status, "pending");
+
+      // An immediate second click doesn't touch a refund that may still be in flight.
+      assert.ok((await refundCancelledOrder(id))?.ok === false);
+      assert.equal((await refundsFor(id))[0].status, "pending");
+
+      // Later, Razorpay answers: the earlier refund did go through, so no new one is sent.
+      await db()`update refunds set updated_at = now() - interval '2 minutes' where id = ${pending.id}`;
+      fakeRazorpay(() => json({ id: "rfnd_dupe", status: "processed" }), () => json({ items: [{ id: "rfnd_late", status: "processed", notes: { refund_id: pending.id } }] }));
+      const second = await refundCancelledOrder(id);
+      assert.ok(second && !second.ok, "already fully refunded");
+      assert.equal(posts, 1, "only the first attempt reached Razorpay's refund endpoint");
+      const rows = await refundsFor(id);
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].status, "processed");
+      assert.equal(rows[0].razorpayRefundId, "rfnd_late");
+    });
+
+    test("a refund Razorpay refuses outright is marked failed without a lookup", async () => {
+      const id = await paidThenCancelled();
+      let lookups = 0;
+      fakeRazorpay(() => json({ error: { description: "The amount is invalid" } }, 400), () => {
+        lookups++;
+        return json({ items: [] });
+      });
+      const res = await refundCancelledOrder(id);
+      assert.ok(res && !res.ok);
+      assert.equal(lookups, 0);
+      assert.equal((await refundsFor(id))[0].status, "failed");
+    });
   });
 
   test("unknown events are acknowledged and recorded as ignored", async () => {
