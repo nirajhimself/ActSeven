@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import type postgres from "postgres";
 import { isReturnWindowOpen, RETURN_REASONS, type Refund, type ReturnRequest, type ReturnStatus } from "@/lib/returns";
 import { db } from "./db";
-import { createRazorpayRefund, isRazorpayConfigured } from "./razorpay";
+import { createRazorpayRefund, findRazorpayRefund, isRazorpayConfigured, RazorpayRejected, type RazorpayRefund } from "./razorpay";
 
 /**
  * Returns and refunds. Every transition is a guarded UPDATE (it only applies
@@ -211,6 +211,9 @@ async function issueRefund(input: {
   amount?: number;
   reference?: string;
 }): Promise<Result<{ refundId: string; method: "razorpay" | "manual" }>> {
+  // An earlier attempt may be stuck pending without an answer from Razorpay:
+  // settle it first, so this attempt either sees it refunded or may go ahead.
+  await settleStalePending(input.orderId, input.returnId);
   const refundId = randomUUID();
   let prepared: { method: "razorpay" | "manual"; paymentId: string | null; number: string; amount: number };
 
@@ -262,18 +265,76 @@ async function issueRefund(input: {
         refundId,
         receipt: `${prepared.number}-${refundId.slice(0, 8)}`,
       });
-      await db()`
-        update refunds set razorpay_refund_id = ${rzp.id}, updated_at = now(),
-               status = ${rzp.status === "processed" ? "processed" : rzp.status === "failed" ? "failed" : "initiated"}
-         where id = ${refundId} and status = 'pending'`;
-      if (rzp.status === "failed") await markRefundFailed(refundId, "Razorpay reported the refund as failed.");
+      await recordRazorpayRefund(refundId, rzp);
     } catch (err) {
       console.error("[refund] Razorpay refund failed", err);
-      await markRefundFailed(refundId, err instanceof Error ? err.message.slice(0, 300) : "Refund request failed.");
-      return { ok: false, error: "Razorpay didn't accept the refund. Nothing was refunded — check the error below and try again." };
+      const detail = err instanceof Error ? err.message.slice(0, 300) : "Refund request failed.";
+      if (err instanceof RazorpayRejected) {
+        await markRefundFailed(refundId, detail);
+        return { ok: false, error: "Razorpay didn't accept the refund. Nothing was refunded — check the error below and try again." };
+      }
+      // No clear answer (timeout, network, 5xx): Razorpay may have created the
+      // refund anyway. Retrying blindly could refund twice, so check first.
+      const settled = await settleUnconfirmedRefund(refundId, prepared.paymentId);
+      if (settled === "refunded") return { ok: true, refundId, method: prepared.method };
+      if (settled === "not_found") {
+        return { ok: false, error: "Razorpay didn't accept the refund. Nothing was refunded — check the error below and try again." };
+      }
+      return {
+        ok: false,
+        error: "Razorpay didn't respond, so it isn't known yet whether the refund went through. It stays pending and updates when Razorpay confirms it. Don't refund again — trying later re-checks with Razorpay first.",
+      };
     }
   }
   return { ok: true, refundId, method: prepared.method };
+}
+
+async function recordRazorpayRefund(refundId: string, rzp: RazorpayRefund) {
+  await db()`
+    update refunds set razorpay_refund_id = ${rzp.id}, error = null, updated_at = now(),
+           status = ${rzp.status === "processed" ? "processed" : rzp.status === "failed" ? "failed" : "initiated"}
+     where id = ${refundId} and status = 'pending'`;
+  if (rzp.status === "failed") await markRefundFailed(refundId, "Razorpay reported the refund as failed.");
+}
+
+/**
+ * Resolves a refund whose request got no clear answer by asking Razorpay for
+ * it (matched by notes.refund_id). "unknown" leaves it pending, which keeps a
+ * second refund from being issued until the outcome is known.
+ */
+async function settleUnconfirmedRefund(refundId: string, paymentId: string): Promise<"refunded" | "not_found" | "unknown"> {
+  let found: RazorpayRefund | null;
+  try {
+    found = await findRazorpayRefund(paymentId, refundId);
+  } catch (err) {
+    console.error("[refund] Razorpay refund lookup failed", refundId, err);
+    await db()`
+      update refunds set error = ${"No response from Razorpay; waiting for its confirmation."}, updated_at = now()
+       where id = ${refundId} and status = 'pending'`;
+    return "unknown";
+  }
+  if (!found) {
+    await markRefundFailed(refundId, "The refund request didn't reach Razorpay.");
+    return "not_found";
+  }
+  await recordRazorpayRefund(refundId, found);
+  return found.status === "failed" ? "not_found" : "refunded";
+}
+
+/**
+ * Re-checks an online refund for this return (or cancellation) still pending
+ * from an earlier attempt that got no answer. Only rows untouched for a
+ * minute, so a request still in flight is never second-guessed.
+ */
+async function settleStalePending(orderId: string, returnId: string | null) {
+  const sql = db();
+  const [pending] = await sql`
+    select r.id, o.razorpay_payment_id
+      from refunds r join orders o on o.id = r.order_id
+     where r.order_id = ${orderId} and r.status = 'pending' and r.method = 'razorpay'
+       and r.updated_at < now() - interval '1 minute'
+       and ${returnId ? sql`r.return_id = ${returnId}` : sql`r.return_id is null`}`;
+  if (pending?.razorpay_payment_id) await settleUnconfirmedRefund(pending.id, pending.razorpay_payment_id);
 }
 
 /** Marks a refund failed and re-opens its return so it can be retried. */

@@ -48,13 +48,40 @@ export async function createRazorpayRefund(input: { paymentId: string; amountRup
       notes: { refund_id: input.refundId },
     }),
     cache: "no-store",
+    signal: AbortSignal.timeout(RAZORPAY_TIMEOUT_MS),
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    throw new Error(`Razorpay refund failed (${res.status}): ${detail.slice(0, 200)}`);
+    const message = `Razorpay refund failed (${res.status}): ${detail.slice(0, 200)}`;
+    // A 4xx is a definite "no" (nothing was created); a 5xx may hide a refund that went through.
+    throw res.status < 500 ? new RazorpayRejected(message) : new Error(message);
   }
-  return (await res.json()) as { id: string; status: "pending" | "processed" | "failed" };
+  return (await res.json()) as RazorpayRefund;
 }
+
+/**
+ * Finds the Razorpay refund we created for `refundId` (matched by
+ * notes.refund_id), or null if Razorpay has none. Throws if Razorpay can't be
+ * asked, in which case the outcome is still unknown.
+ */
+export async function findRazorpayRefund(paymentId: string, refundId: string): Promise<RazorpayRefund | null> {
+  const auth = Buffer.from(`${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`).toString("base64");
+  const res = await fetch(`${API}/payments/${encodeURIComponent(paymentId)}/refunds?count=100`, {
+    headers: { Authorization: `Basic ${auth}` },
+    cache: "no-store",
+    signal: AbortSignal.timeout(RAZORPAY_TIMEOUT_MS),
+  });
+  if (!res.ok) throw new Error(`Razorpay refund lookup failed (${res.status})`);
+  const body = (await res.json()) as { items?: (RazorpayRefund & { notes?: { refund_id?: string } })[] };
+  return body.items?.find((r) => r.notes?.refund_id === refundId) ?? null;
+}
+
+export type RazorpayRefund = { id: string; status: "pending" | "processed" | "failed" };
+
+/** Razorpay answered and refused the request, so nothing was created. */
+export class RazorpayRejected extends Error {}
+
+const RAZORPAY_TIMEOUT_MS = 20_000;
 
 function safeEqualHex(a: string, b: string) {
   const ab = Buffer.from(a, "utf8");
