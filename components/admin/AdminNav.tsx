@@ -2,7 +2,7 @@ import Link from "next/link";
 import { adminSignOutAction } from "@/app/admin/session-actions";
 import { paymentMode } from "@/lib/server/razorpay";
 
-export type AdminSection = "overview" | "orders" | "returns" | "products" | "inventory";
+export type AdminSection = "overview" | "orders" | "returns" | "products" | "inventory" | "discounts";
 
 const modeTone = {
   test: "bg-[#f1e3c8] text-[#6a4a12]",
@@ -17,6 +17,7 @@ export function AdminNav({ current }: { current: AdminSection }) {
     { key: "returns", href: "/admin/returns", label: "Returns" },
     { key: "products", href: "/admin/products", label: "Products" },
     { key: "inventory", href: "/admin/inventory", label: "Inventory" },
+    { key: "discounts", href: "/admin/discounts", label: "Discounts" },
   ] as const;
   const mode = paymentMode();
   return (

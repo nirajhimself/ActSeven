@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { computeTotals, discountFor } from "@/lib/pricing";
 import { policy } from "@/lib/site";
+import { discountState, listDiscounts, parseDiscountForm, saveDiscount } from "@/lib/server/admin-discounts";
 import { checkCart } from "@/lib/server/cart";
 import { db } from "@/lib/server/db";
 import { DiscountError, normaliseCode, previewDiscount } from "@/lib/server/discounts";
@@ -104,6 +105,42 @@ describe("coupon rules", () => {
     const bad = await checkCart(lines, "razorpay", "NOPE-123");
     assert.ok(bad.discount && !bad.discount.ok);
     assert.equal(bad.totals.discount, 0);
+  });
+});
+
+describe("managing codes in the admin", () => {
+  const form = (fields: Record<string, string>) => {
+    const f = new FormData();
+    for (const [k, v] of Object.entries(fields)) f.append(k, v);
+    return f;
+  };
+  const base = { code: "admin-new", description: "Test offer", type: "percentage", value: "15", maxDiscount: "1,000", minSubtotal: "", startsAt: "", endsAt: "", usageLimit: "", active: "on" };
+
+  test("the form is validated field by field, and dates are read as India time", () => {
+    const { errors } = parseDiscountForm(form({ ...base, code: "no spaces!", description: "", value: "150", startsAt: "2026-11-02T10:00", endsAt: "2026-11-01T10:00" }));
+    assert.ok(errors.code && errors.description && errors.value && errors.endsAt);
+    const { input, errors: none } = parseDiscountForm(form({ ...base, startsAt: "2026-11-01T00:00" }));
+    assert.deepEqual(none, {});
+    assert.equal(input.code, "ADMIN-NEW");
+    assert.equal(input.maxDiscount, 1000);
+    assert.equal(input.startsAt?.toISOString(), "2026-10-31T18:30:00.000Z", "midnight in India");
+    assert.equal(parseDiscountForm(form({ ...base, type: "fixed", value: "500" })).input.maxDiscount, null, "a cap only applies to percentages");
+  });
+
+  test("codes are created once, can't be duplicated, and edits apply at checkout", async () => {
+    const created = await saveDiscount(null, parseDiscountForm(form(base)).input);
+    assert.ok(created.ok);
+    const live = await previewDiscount("ADMIN-NEW", 2000);
+    assert.ok(live.ok, JSON.stringify(live));
+
+    assert.ok((await saveDiscount(created.id, parseDiscountForm(form({ ...base, active: "" })).input)).ok);
+    assert.deepEqual(await previewDiscount("ADMIN-NEW", 2000), { ok: false, error: "That code isn't valid." }, "switched off");
+    const listed = (await listDiscounts()).find((d) => d.code === "ADMIN-NEW");
+    assert.equal(listed && discountState(listed), "off");
+
+    // Last: a refused insert can briefly unsettle the single-session test database for the next query.
+    const dup = await saveDiscount(null, parseDiscountForm(form(base)).input);
+    assert.ok(!dup.ok && dup.errors.code);
   });
 });
 
