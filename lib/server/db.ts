@@ -51,12 +51,18 @@ export function db() {
   return globalThis.__actViiSql;
 }
 
+let lastReset = 0;
+
 /**
  * Discards the pool so the next db() call starts with fresh connections.
  * For when the pool stops answering (e.g. every connection is stuck on a
  * socket the network dropped) — otherwise it stays stuck until a restart.
  */
 export function resetDb() {
+  // At most once a minute: the health check is public, and repeated resets
+  // during a slowdown would kill in-flight queries and make it worse.
+  if (Date.now() - lastReset < 60_000) return;
+  lastReset = Date.now();
   const stale = globalThis.__actViiSql;
   globalThis.__actViiSql = undefined;
   stale?.end({ timeout: 0 }).catch(() => {});
