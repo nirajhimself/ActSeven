@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useId, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, useTransition, type ReactNode } from "react";
 import { confirmRazorpayPayment, placeOrder, placeTestOrder, type CheckoutFields } from "@/app/checkout/actions";
 import { LineIssue } from "@/components/cart/CartLines";
 import { ReviewBagNote } from "@/components/cart/CartSummary";
@@ -62,6 +62,45 @@ function checkoutToken(lines: { slug: string; colour: string; size: string; quan
   let hash = 2166136261; // FNV-1a
   for (let i = 0; i < fingerprint.length; i++) hash = Math.imul(hash ^ fingerprint.charCodeAt(i), 16777619) >>> 0;
   return `${base}-${hash.toString(36)}`;
+}
+
+const COUPON_KEY = "act-vii:coupon";
+const couponListeners = new Set<() => void>();
+let couponMemo: string | null | undefined;
+
+function readCoupon() {
+  if (couponMemo === undefined) {
+    try {
+      couponMemo = sessionStorage.getItem(COUPON_KEY);
+    } catch {
+      couponMemo = null;
+    }
+  }
+  return couponMemo;
+}
+
+function writeCoupon(code: string | null) {
+  couponMemo = code;
+  try {
+    if (code) sessionStorage.setItem(COUPON_KEY, code);
+    else sessionStorage.removeItem(COUPON_KEY);
+  } catch {
+    // storage unavailable: kept for this page only
+  }
+  couponListeners.forEach((l) => l());
+}
+
+/** The coupon the shopper applied, kept for the browser session (cleared once an order is placed). */
+function useCouponCode() {
+  const code = useSyncExternalStore(
+    (onChange) => {
+      couponListeners.add(onChange);
+      return () => couponListeners.delete(onChange);
+    },
+    readCoupon,
+    () => null,
+  );
+  return [code, writeCoupon] as const;
 }
 
 /** After an order is placed, the next checkout starts a fresh attempt. */
@@ -123,16 +162,20 @@ export function CheckoutForm({ razorpayEnabled, testMode = false }: { razorpayEn
   const { products } = useCatalog();
   const resolved = useMemo(() => resolveLines(lines, products), [lines, products]);
   const subtotal = resolved.reduce((s, l) => s + l.lineTotal, 0);
-  const codOk = codAvailable(computeTotals(subtotal, "cod").total);
 
   const [chosen, setChosen] = useState<PaymentMethod | null>(null);
   // Test orders are priced like online payments (no COD fee).
   const method: PaymentMethod = testMode ? "razorpay" : (chosen ?? (razorpayEnabled ? "razorpay" : "cod"));
   const [recheck, setRecheck] = useState(0);
-  const check = useCartCheck(lines, testMode ? undefined : method, recheck);
+  const [couponCode, setCouponCode] = useCouponCode();
+  const check = useCartCheck(lines, testMode ? undefined : method, recheck, testMode ? null : couponCode);
   // Once the live server check passes, show its prices; until then, the catalogue's.
   const totals = check && !check.blocking ? check.totals : computeTotals(subtotal, method);
   const needsReview = Boolean(check?.blocking);
+  // The code only counts once the server has priced it in.
+  const discount = couponCode && check?.discount ? check.discount : null;
+  const appliedCode = discount?.ok && totals.discount > 0 ? discount.code : null;
+  const codOk = codAvailable(computeTotals(subtotal, "cod", totals.discount).total);
 
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -177,6 +220,7 @@ export function CheckoutForm({ razorpayEnabled, testMode = false }: { razorpayEn
   const finish = (orderId: string) => {
     setRedirecting(true);
     forgetCheckoutAttempt();
+    writeCoupon(null);
     clearCart();
     router.push(`/orders/${orderId}`);
   };
@@ -223,11 +267,12 @@ export function CheckoutForm({ razorpayEnabled, testMode = false }: { razorpayEn
         lines: lines.map(({ slug, colour, size, quantity }) => ({ slug, colour, size, quantity })),
         checkoutToken: checkoutToken(lines, method),
         expectedTotal: totals.total,
+        discountCode: appliedCode ?? undefined,
       });
 
       if (!result.ok) {
         // Refresh the summary so the shopper sees (and can accept) the new total.
-        if (result.code === "PRICE_CHANGED") setRecheck((n) => n + 1);
+        if (result.code === "PRICE_CHANGED" || result.code === "DISCOUNT_INVALID") setRecheck((n) => n + 1);
         return showErrors(result);
       }
       if (result.method === "cod") {
@@ -475,11 +520,28 @@ export function CheckoutForm({ razorpayEnabled, testMode = false }: { razorpayEn
               </li>
             ))}
           </ul>
+          {testMode ? null : (
+            <CouponField
+              key={couponCode ?? ""}
+              code={couponCode}
+              applied={discount?.ok ? discount : null}
+              error={discount && !discount.ok ? discount.error : null}
+              checking={Boolean(couponCode) && !discount}
+              onApply={setCouponCode}
+              onRemove={() => setCouponCode(null)}
+            />
+          )}
           <dl className="mt-4 space-y-2 border-t border-obsidian/10 pt-4 text-sm">
             <div className="flex justify-between">
               <dt>Subtotal</dt>
               <dd className="tabular-nums">{formatINR(totals.subtotal)}</dd>
             </div>
+            {totals.discount ? (
+              <div className="flex justify-between">
+                <dt>Discount{appliedCode ? ` (${appliedCode})` : ""}</dt>
+                <dd className="tabular-nums">−{formatINR(totals.discount)}</dd>
+              </div>
+            ) : null}
             <div className="flex justify-between">
               <dt>Shipping</dt>
               <dd className="tabular-nums">{totals.shipping ? formatINR(totals.shipping) : "Complimentary"}</dd>
@@ -502,6 +564,81 @@ export function CheckoutForm({ razorpayEnabled, testMode = false }: { razorpayEn
         </div>
       </aside>
     </div>
+  );
+}
+
+/** Discount code entry in the order summary; once the server accepts a code, shows it with a Remove link. */
+function CouponField({
+  code,
+  applied,
+  error,
+  checking,
+  onApply,
+  onRemove,
+}: {
+  code: string | null;
+  applied: { code: string; description: string } | null;
+  error: string | null;
+  checking: boolean;
+  onApply: (code: string) => void;
+  onRemove: () => void;
+}) {
+  const id = useId();
+  const [value, setValue] = useState(code ?? "");
+
+  if (applied) {
+    return (
+      <div className="mt-4 flex items-start justify-between gap-3 border-t border-obsidian/10 pt-4 text-sm">
+        <p>
+          <span className="font-medium tracking-[0.08em]">{applied.code}</span> applied
+          <span className="mt-0.5 block text-xs text-taupe">{applied.description}</span>
+        </p>
+        <button type="button" onClick={onRemove} className="text-xs underline underline-offset-4 hover:text-gold-deep">
+          Remove
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <form
+      className="mt-4 border-t border-obsidian/10 pt-4"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const next = value.trim().toUpperCase();
+        if (next) onApply(next);
+      }}
+    >
+      <label htmlFor={id} className="mb-1.5 block text-xs">
+        Discount code
+      </label>
+      <div className="flex gap-2">
+        <input
+          id={id}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          autoComplete="off"
+          autoCapitalize="characters"
+          spellCheck={false}
+          maxLength={40}
+          aria-invalid={Boolean(error)}
+          aria-describedby={error ? `${id}-err` : undefined}
+          className={`${inputClass} min-w-0 flex-1 uppercase`}
+        />
+        <button
+          type="submit"
+          disabled={checking || !value.trim()}
+          className="label min-h-12 shrink-0 border border-obsidian/60 px-5 hover:bg-obsidian hover:text-ivory disabled:opacity-45"
+        >
+          {checking ? "Checking…" : "Apply"}
+        </button>
+      </div>
+      {error ? (
+        <p id={`${id}-err`} role="alert" className="mt-1 text-xs text-[#9b2c1f]">
+          {error}
+        </p>
+      ) : null}
+    </form>
   );
 }
 

@@ -11,10 +11,11 @@ import type { PaymentMethod } from "./pricing";
  * couldn't run — callers then fall back to the catalogue's figures, and
  * checkout still validates everything on the server.
  */
-export function useCartCheck(lines: CartLine[], method?: PaymentMethod, refresh = 0): CartCheck | null {
+export function useCartCheck(lines: CartLine[], method?: PaymentMethod, refresh = 0, code?: string | null): CartCheck | null {
   const plain = lines.map(({ slug, colour, size, quantity }) => ({ slug, colour, size, quantity }));
-  // `refresh` forces a new check (e.g. after the server reported a price change).
-  const key = JSON.stringify([plain, method ?? null, refresh]);
+  // `refresh` forces a new check (e.g. after the server reported a price change);
+  // `code` is a coupon to price in (the result says whether it applies).
+  const key = JSON.stringify([plain, method ?? null, refresh, code ?? null]);
   const [result, setResult] = useState<{ key: string; check: CartCheck | null } | null>(null);
 
   useEffect(() => {
@@ -23,7 +24,7 @@ export function useCartCheck(lines: CartLine[], method?: PaymentMethod, refresh 
     const timer = setTimeout(() => {
       // A Route Handler, not a Server Action: actions run one at a time, so the
       // check would wait behind the bag sync the page starts on load.
-      fetch("/api/cart/check", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lines: plain, method }) })
+      fetch("/api/cart/check", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lines: plain, method, code: code || undefined }) })
         .then((res) => (res.ok ? (res.json() as Promise<CartCheck | null>) : null))
         .then((check) => !cancelled && setResult({ key, check }))
         .catch(() => !cancelled && setResult({ key, check: null }));
