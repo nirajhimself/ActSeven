@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { checkConfig, hasErrors } from "@/lib/server/config";
 import { startDbWatchdog, stopDbWatchdog } from "@/lib/server/db-watchdog";
+import { isTransientDbError, withReadRetry } from "@/lib/server/prisma";
 
 const good = {
   NODE_ENV: "production",
@@ -81,6 +82,29 @@ describe("production configuration", () => {
       globalThis.__actViiSql = undefined;
       globalThis.__actViiPrisma = undefined;
     }
+  });
+
+  test("reads retry when the database is briefly unreachable, but not on other errors", async () => {
+    let calls = 0;
+    const flaky = () => {
+      calls++;
+      if (calls < 3) throw Object.assign(new Error("Can't reach database server at `pooler`"), { code: "P1001" });
+      return Promise.resolve("ok");
+    };
+    assert.equal(await withReadRetry(async () => flaky()), "ok");
+    assert.equal(calls, 3, "two retries");
+
+    assert.ok(isTransientDbError(Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" })));
+    assert.ok(!isTransientDbError(new Error('duplicate key value violates unique constraint "x"')));
+    calls = 0;
+    await assert.rejects(
+      withReadRetry(async () => {
+        calls++;
+        throw new Error("syntax error");
+      }),
+      /syntax error/,
+    );
+    assert.equal(calls, 1, "other errors aren't retried");
   });
 
   test("findings never contain secret values", () => {

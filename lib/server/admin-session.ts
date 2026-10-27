@@ -3,7 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { adminUsername, checkAdminCredentials, isAdminEnabled } from "@/lib/admin-auth";
 import type postgres from "postgres";
 import { db as sqlDb } from "./db";
-import { prisma } from "./prisma";
+import { prisma, withReadRetry } from "./prisma";
 
 /**
  * Admin sign-in sessions, lockout and audit log (database-backed).
@@ -93,8 +93,8 @@ export async function adminSignIn(username: unknown, password: unknown, meta: Ad
 /** The signed-in admin for a session token, or null if it's missing, unknown or expired. */
 export async function getAdminSession(token: string | undefined | null) {
   if (!token || token.length > 200 || !isAdminEnabled()) return null;
-  const session = await prisma().adminSession.findUnique({ where: { id: sha256(token) } });
-  if (!session || session.expiresAt <= new Date()) return null;
+  const session = await withReadRetry(() => prisma().adminSession.findUnique({ where: { id: sha256(token) } }));
+  if (!session || session.expiresAt.getTime() <= Date.now()) return null;
   // A changed ADMIN_USER invalidates existing sessions.
   if (session.username !== adminUsername()) return null;
   return { username: session.username, ip: session.ip, expiresAt: session.expiresAt };

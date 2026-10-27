@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { connection } from "next/server";
 import { cache } from "react";
 import { db, isDatabaseConfigured } from "./db";
+import { withReadRetry } from "./prisma";
 
 export const SESSION_COOKIE = "act_vii_session";
 const SESSION_DAYS = 30;
@@ -116,10 +117,12 @@ export const getCurrentCustomer = cache(async (): Promise<Customer | null> => {
   // (runtime) prerender. This also keeps the database driver, which uses
   // Math.random() when it opens a connection, out of prerendering.
   await connection();
-  const [row] = await db()`
-    select c.id, c.email, c.name, c.phone
-      from sessions s join customers c on c.id = s.customer_id
-     where s.id = ${sha256(token)} and s.expires_at > now()`;
+  const [row] = await withReadRetry(
+    () => db()`
+      select c.id, c.email, c.name, c.phone
+        from sessions s join customers c on c.id = s.customer_id
+       where s.id = ${sha256(token)} and s.expires_at > now()`,
+  );
   return row ? { id: row.id, email: row.email, name: row.name, phone: row.phone } : null;
 });
 

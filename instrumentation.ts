@@ -35,7 +35,9 @@ export const onRequestError: Instrumentation.onRequestError = async (err, reques
       route: context.routePath,
       routeType: context.routeType,
       renderSource: "renderSource" in context ? context.renderSource : undefined,
-      time: new Date().toISOString(),
+      // Not `new Date()`: this also runs for errors during prerendering, where
+      // Next.js rejects reading the clock and would report a second error.
+      time: new Date(performance.timeOrigin + performance.now()).toISOString(),
     }),
   );
 };

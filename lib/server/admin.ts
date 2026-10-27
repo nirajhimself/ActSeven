@@ -1,5 +1,6 @@
 import "server-only";
 import { cookies } from "next/headers";
+import { connection } from "next/server";
 import { notFound, redirect } from "next/navigation";
 import { ADMIN_COOKIE, isAdminEnabled } from "@/lib/admin-auth";
 import { audit, getAdminSession } from "./admin-session";
@@ -17,6 +18,9 @@ export async function requireAdmin() {
   // so build-time settings (e.g. no ADMIN_PASSWORD at build) are never baked in.
   const token = (await cookies()).get(ADMIN_COOKIE)?.value;
   if (!isAdminEnabled()) notFound();
+  // Admin pages are private and live: never render them in a (runtime)
+  // prerender, where checking the session's expiry against the clock fails.
+  await connection();
   const session = await getAdminSession(token);
   if (!session) redirect("/admin/login");
   const ip = await clientIp();

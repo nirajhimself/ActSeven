@@ -8,6 +8,7 @@ import { requireAdmin } from "@/lib/server/admin";
 import { getOverview } from "@/lib/server/admin-overview";
 import { recentAudit } from "@/lib/server/admin-session";
 import { recentPaymentEvents } from "@/lib/server/payments";
+import { withReadRetry } from "@/lib/server/prisma";
 import { paymentMode } from "@/lib/server/razorpay";
 import { checkConfig } from "@/lib/server/config";
 
@@ -43,7 +44,7 @@ function Stat({ label, value, href, alert }: { label: string; value: string | nu
 
 async function Overview() {
   const admin = await requireAdmin();
-  const [o, events, audit] = await Promise.all([getOverview(), recentPaymentEvents(6), recentAudit(8)]);
+  const [o, events, audit] = await withReadRetry(() => Promise.all([getOverview(), recentPaymentEvents(6), recentAudit(8)]));
   const mode = paymentMode();
   const setup = checkConfig();
 
