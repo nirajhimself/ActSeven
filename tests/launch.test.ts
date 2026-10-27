@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { checkConfig, hasErrors } from "@/lib/server/config";
 import { startDbWatchdog, stopDbWatchdog } from "@/lib/server/db-watchdog";
-import { isTransientDbError, withReadRetry } from "@/lib/server/prisma";
+import { DbReadTimeout, isTransientDbError, withReadRetry } from "@/lib/server/prisma";
 
 const good = {
   NODE_ENV: "production",
@@ -105,6 +105,12 @@ describe("production configuration", () => {
       /syntax error/,
     );
     assert.equal(calls, 1, "other errors aren't retried");
+  });
+
+  test("a read that gets no answer gives up instead of hanging the page", async () => {
+    const started = Date.now();
+    await assert.rejects(withReadRetry(() => new Promise(() => {}), 50), DbReadTimeout);
+    assert.ok(Date.now() - started < 1_000);
   });
 
   test("findings never contain secret values", () => {

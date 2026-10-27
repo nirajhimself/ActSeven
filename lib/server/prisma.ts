@@ -1,7 +1,7 @@
 import "server-only";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
-import { isDatabaseConfigured, poolSize } from "./db";
+import { ensureDbWatchdog, isDatabaseConfigured, poolSize } from "./db";
 
 declare global {
   var __actViiPrisma: PrismaClient | undefined;
@@ -46,6 +46,7 @@ export function prisma() {
       transactionOptions: { maxWait: 10_000, timeout: 30_000 },
     });
   }
+  ensureDbWatchdog();
   return globalThis.__actViiPrisma;
 }
 
@@ -68,17 +69,37 @@ export function isTransientDbError(err: unknown) {
 }
 
 const RETRY_DELAYS_MS = [500, 2_000];
+/** No read waits longer than this; a stuck connection is replaced by the watchdog meanwhile. */
+export const READ_TIMEOUT_MS = 25_000;
+
+export class DbReadTimeout extends Error {
+  constructor() {
+    super(`The database didn't answer within ${READ_TIMEOUT_MS / 1000} s`);
+    this.name = "DbReadTimeout";
+  }
+}
+
+function withinTimeout<T>(read: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    read,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new DbReadTimeout()), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
 
 /**
  * Runs a read-only query, retrying up to twice (after 0.5 s, then 2 s) if the
  * database couldn't be reached or the connection dropped mid-flight — brief
- * network blips then cost a moment instead of an error page.
+ * network blips then cost a moment instead of an error page. Each attempt
+ * gives up after READ_TIMEOUT_MS, so a page never hangs on a stuck connection.
  * Only for reads: retrying a write could apply it twice.
  */
-export async function withReadRetry<T>(read: () => Promise<T>): Promise<T> {
+export async function withReadRetry<T>(read: () => Promise<T>, timeoutMs = READ_TIMEOUT_MS): Promise<T> {
   for (let attempt = 0; ; attempt++) {
     try {
-      return await read();
+      return await withinTimeout(read(), timeoutMs);
     } catch (err) {
       if (attempt >= RETRY_DELAYS_MS.length || !isTransientDbError(err)) throw err;
       console.warn(`[db] database unreachable during a read; retrying (${attempt + 1}/${RETRY_DELAYS_MS.length})`);

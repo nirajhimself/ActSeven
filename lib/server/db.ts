@@ -1,5 +1,6 @@
 import "server-only";
 import postgres from "postgres";
+import { startDbWatchdog } from "./db-watchdog";
 
 declare global {
   var __actViiSql: postgres.Sql | undefined;
@@ -60,7 +61,18 @@ export function db() {
   const url = process.env.DATABASE_URL;
   if (!url || !isDatabaseConfigured()) throw new Error("DATABASE_URL is not configured");
   globalThis.__actViiSql ??= postgres(url, connectionOptions(url));
+  ensureDbWatchdog();
   return globalThis.__actViiSql;
+}
+
+/**
+ * Starts the connection watchdog (lib/server/db-watchdog.ts) on first use, so
+ * it runs even in a dev server that was started before it existed and only
+ * hot-reloaded this code. instrumentation.ts also starts it at boot. Not on
+ * the sample database, where tests drive it themselves.
+ */
+export function ensureDbWatchdog() {
+  if (!isSampleDatabase()) startDbWatchdog();
 }
 
 let lastReset = 0;
