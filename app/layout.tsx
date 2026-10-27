@@ -50,8 +50,9 @@ const STRIP_AUTOFILL_MARKERS = `(() => {
   const observer = new MutationObserver((mutations) => {
     for (const m of mutations) m.target.removeAttribute(attr);
   });
+  // Keeps watching: in development, hydration can start well after "load",
+  // and extensions keep stamping buttons until then.
   observer.observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: [attr] });
-  addEventListener("load", () => setTimeout(() => observer.disconnect(), 3000));
 })();`;
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {
