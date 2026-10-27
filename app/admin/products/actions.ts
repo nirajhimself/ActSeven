@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/server/admin";
 import { addColour, parseProductForm, saveProduct, type FieldErrors } from "@/lib/server/admin-products";
 import { CATALOG_TAG } from "@/lib/server/catalog";
+import { setStockLevels, stockChangesFrom } from "@/lib/server/inventory";
 import { MAX_MEDIA_BYTES, mediaUrl, saveMedia } from "@/lib/server/media";
 
 /** Saves the product form. Returns field errors, or redirects to the product on success. */
@@ -14,6 +15,8 @@ export async function saveProductAction(formData: FormData): Promise<{ errors: F
   const id = /^\d+$/.test(rawId) ? Number(rawId) : null;
 
   const { input, errors } = parseProductForm(formData);
+  const stock = stockChangesFrom(formData);
+  if (stock.invalid) errors.variants = "Stock must be a whole number from 0 to 1,00,000.";
   if (Object.keys(errors).length) return { errors };
 
   let result;
@@ -25,6 +28,16 @@ export async function saveProductAction(formData: FormData): Promise<{ errors: F
   }
   if (!result.ok) return { errors: result.errors };
 
+  if (stock.levels.length) {
+    try {
+      await setStockLevels(stock.levels);
+    } catch (err) {
+      console.error("[admin] save stock failed", err);
+      updateTag(CATALOG_TAG);
+      return { errors: { variants: "The product was saved, but the stock couldn't be. Please try again." } };
+    }
+    await admin.audit("inventory.update", "inventory", null, { changes: stock.levels.slice(0, 200) });
+  }
   updateTag(CATALOG_TAG);
   await admin.audit(id ? "product.update" : "product.create", "product", String(result.id), {
     slug: result.slug,

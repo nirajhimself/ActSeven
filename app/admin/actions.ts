@@ -6,7 +6,7 @@ import { after } from "next/server";
 import { requireAdmin } from "@/lib/server/admin";
 import { CATALOG_TAG } from "@/lib/server/catalog";
 import { sendReturnUpdate, sendShippingNotice } from "@/lib/server/email";
-import { setStockLevels } from "@/lib/server/inventory";
+import { setStockLevels, stockChangesFrom } from "@/lib/server/inventory";
 import { cancelOrder, getOrder, markDelivered, markShipped } from "@/lib/server/orders";
 import { approveReturn, getReturn, receiveReturn, refundCancelledOrder, refundReturn, rejectReturn } from "@/lib/server/returns";
 
@@ -61,15 +61,7 @@ export async function deliverOrderAction(formData: FormData) {
  */
 export async function saveInventoryAction(formData: FormData) {
   const admin = await requireAdmin();
-  const levels: { variantId: number; quantity: number }[] = [];
-  for (const [key, raw] of formData.entries()) {
-    if (!key.startsWith("stock:")) continue;
-    const variantId = Number(key.slice("stock:".length));
-    const quantity = Number(String(raw).trim());
-    if (!Number.isInteger(variantId) || !Number.isInteger(quantity)) continue;
-    if (String(formData.get(`orig:${variantId}`)) === String(quantity)) continue;
-    levels.push({ variantId, quantity });
-  }
+  const { levels } = stockChangesFrom(formData);
   const saved = await setStockLevels(levels);
   if (saved > 0) {
     updateTag(CATALOG_TAG);

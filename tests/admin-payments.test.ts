@@ -9,6 +9,7 @@ import { after, before, describe, test } from "node:test";
 import { adminSignIn, audit, endAdminSession, getAdminSession, GLOBAL_MAX_FAILURES, lockoutMinutes, MAX_FAILURES } from "@/lib/server/admin-session";
 import { getOverview } from "@/lib/server/admin-overview";
 import { isValidImageUrl, parseProductForm, saveProduct } from "@/lib/server/admin-products";
+import { stockChangesFrom } from "@/lib/server/inventory";
 import { getMedia, MAX_MEDIA_BYTES, mediaUrl, saveMedia } from "@/lib/server/media";
 import { issueLoginCode, MAX_CODES_PER_IP_PER_HOUR, verifyLoginCode } from "@/lib/server/auth";
 import { db } from "@/lib/server/db";
@@ -207,6 +208,20 @@ describe("product management", () => {
     assert.equal((await saveMedia(Buffer.alloc(0), "admin")).ok, false);
     assert.equal((await saveMedia(Buffer.alloc(MAX_MEDIA_BYTES + 1, 0xff), "admin")).ok, false, "too large");
     assert.equal(await getMedia("../../etc/passwd"), null);
+  });
+
+  test("stock edits on the product form: only changed, valid numbers are saved", () => {
+    const form = new FormData();
+    for (const [id, orig, now] of [[1, "4", "4"], [2, "0", "12"], [3, "5", " 0 "], [4, "2", "-1"], [5, "2", "1.5"]]) {
+      form.set(`orig:${id}`, String(orig));
+      form.set(`stock:${id}`, String(now));
+    }
+    const { levels, invalid } = stockChangesFrom(form);
+    assert.deepEqual(levels, [
+      { variantId: 2, quantity: 12 },
+      { variantId: 3, quantity: 0 },
+    ]);
+    assert.equal(invalid, true, "negative and fractional stock are refused");
   });
 
   test("image URLs must be https or a /public path", () => {

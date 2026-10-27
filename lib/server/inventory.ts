@@ -92,6 +92,29 @@ export async function expireStalePendingOrders() {
   return expired;
 }
 
+/**
+ * Stock edits from an admin form: inputs `stock:<variantId>`, each with the
+ * value shown when the page loaded in `orig:<variantId>`. Only changed
+ * numbers are returned, so stock taken by orders since then isn't overwritten.
+ */
+export function stockChangesFrom(formData: FormData): { levels: { variantId: number; quantity: number }[]; invalid: boolean } {
+  const levels: { variantId: number; quantity: number }[] = [];
+  let invalid = false;
+  for (const [key, raw] of formData.entries()) {
+    if (!key.startsWith("stock:")) continue;
+    const variantId = Number(key.slice("stock:".length));
+    const text = String(raw).trim();
+    if (!Number.isInteger(variantId) || text === String(formData.get(`orig:${variantId}`))) continue;
+    const quantity = Number(text);
+    if (text === "" || !Number.isInteger(quantity) || quantity < 0 || quantity > 100000) {
+      invalid = true;
+      continue;
+    }
+    levels.push({ variantId, quantity });
+  }
+  return { levels, invalid };
+}
+
 /** Admin: set stock for many variants at once. Returns how many were saved. */
 export async function setStockLevels(levels: { variantId: number; quantity: number }[]) {
   const valid = levels.filter((l) => Number.isInteger(l.variantId) && Number.isInteger(l.quantity) && l.quantity >= 0 && l.quantity <= 100000);

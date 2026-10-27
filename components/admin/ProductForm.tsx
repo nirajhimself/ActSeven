@@ -310,7 +310,8 @@ export function ProductForm({ product, options }: { product: EditableProduct; op
       {product.variants.length ? (
         <Section title="Variants">
           <p className="text-xs text-taupe">
-            Stock is managed on the Inventory page. A blank price uses the product price. Switched-off variants can&apos;t be bought.
+            Set the stock for each colour and size here or on the Inventory page. A blank price uses the product price. Switched-off variants
+            can&apos;t be bought.
           </p>
           {errors.variants ? <p className="text-xs text-[#9b2c1f]">{errors.variants}</p> : null}
           <div className="overflow-x-auto">
@@ -332,7 +333,20 @@ export function ProductForm({ product, options }: { product: EditableProduct; op
                       <span aria-hidden="true" className="mr-2 inline-block size-3 rounded-full align-middle ring-1 ring-obsidian/20" style={{ backgroundColor: v.hex }} />
                       {v.colour} / {v.size}
                     </td>
-                    <td className="py-1.5 pr-3 text-right tabular-nums">{v.stock}</td>
+                    <td className="py-1.5 pr-3 text-right">
+                      <input type="hidden" name={`orig:${v.id}`} value={v.stock} />
+                      <input
+                        name={`stock:${v.id}`}
+                        type="number"
+                        min={0}
+                        max={100000}
+                        step={1}
+                        inputMode="numeric"
+                        defaultValue={v.stock}
+                        aria-label={`Stock for ${v.colour} / ${v.size}`}
+                        className="h-9 w-20 border border-obsidian/20 bg-ivory px-2 text-right text-sm tabular-nums outline-none focus:border-obsidian"
+                      />
+                    </td>
                     <td className="py-1.5 pr-3">
                       <input type="hidden" name={`variant.${v.id}.present`} value="1" />
                       <input
@@ -353,7 +367,7 @@ export function ProductForm({ product, options }: { product: EditableProduct; op
           </div>
         </Section>
       ) : (
-        <p className="text-xs text-taupe">Variants (one per colour and size) are created when you save, with zero stock.</p>
+        <p className="text-xs text-taupe">Variants (one per colour and size) are created when you save, with zero stock; set each one&apos;s stock here after saving.</p>
       )}
 
       <div className="sticky bottom-0 -mx-5 flex flex-wrap items-center gap-4 border-t border-obsidian/10 bg-ivory/95 px-5 py-4 backdrop-blur md:mx-0 md:px-0">
