@@ -1,7 +1,7 @@
 // PLACEHOLDER POLICY VALUES — confirm shipping and returns terms with the
 // business before launch. They are shown to shoppers in the cart and on PDPs.
 export const policy = {
-  freeShippingThreshold: 2999,
+  freeShippingThreshold: 699,
   standardShipping: 149,
   returnWindowDays: 15,
   maxQuantityPerLine: 10,
