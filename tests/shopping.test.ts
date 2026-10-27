@@ -8,6 +8,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
+import { placeTestOrder } from "@/app/checkout/actions";
 import { codAvailable, computeTotals } from "@/lib/pricing";
 import { policy } from "@/lib/site";
 import { checkCart, checkLines, cleanLines, clearCustomerCart, getCustomerCart, mergeCartLines, saveCustomerCart } from "@/lib/server/cart";
@@ -260,6 +261,20 @@ describe("order creation", () => {
     assert.equal(results.filter((r) => r.status === "fulfilled").length, MAX_ORDERS_PER_IP_PER_HOUR);
     assert.ok(results.filter((r) => r.status === "rejected").every((r) => (r as PromiseRejectedResult).reason instanceof OrderLimitError));
     assert.ok(await createOrder({ customer: shopper(), items: [item], method: "razorpay", totals, clientIp: "198.51.100.78" }), "other addresses are unaffected");
+  });
+
+  test("checkout merges repeated lines, so splitting a quantity can't get past the per-item limit", async () => {
+    const colour = await firstColour(PRINT);
+    await stock(PRINT, colour, "M", 50);
+    const fields = { email: "split@example.com", phone: "9876500000", name: "Split Test", address1: "1 Test Lane", address2: "", city: "Pune", state: "Maharashtra", pincode: "411001" };
+    const half = Math.ceil(policy.maxQuantityPerLine / 2) + 1;
+    const line = { slug: PRINT, colour, size: "M", quantity: half };
+    const tooMany = await placeTestOrder({ fields, giftNote: "", lines: [line, line] });
+    assert.equal(tooMany.ok, false);
+
+    const fine = await placeTestOrder({ fields, giftNote: "", lines: [{ ...line, quantity: 4 }, { ...line, quantity: 5 }] });
+    assert.ok(fine.ok);
+    assert.deepEqual(fine.receipt.items.map((i) => i.quantity), [9], "one merged line");
   });
 
   test("order numbers use the date in India", () => {

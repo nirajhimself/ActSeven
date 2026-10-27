@@ -76,15 +76,23 @@ function validateFields(raw: CheckoutFields) {
 async function priceLines(raw: PlaceOrderInput["lines"] | undefined): Promise<{ ok: true; items: OrderItemInput[] } | { ok: false; error: string }> {
   const lines = Array.isArray(raw) ? raw.slice(0, 50) : [];
   if (lines.length === 0) return { ok: false, error: "Your bag is empty." };
+  // Merge repeated lines for the same variant, so splitting a quantity across
+  // lines can't get past the per-item limit.
+  const merged = new Map<string, number>();
+  for (const line of lines) {
+    const quantity = Math.floor(Number(line?.quantity));
+    if (!(quantity >= 1)) return { ok: false, error: "Please check the quantities in your bag and try again." };
+    const key = `${line?.slug}|${line?.colour}|${line?.size}`;
+    merged.set(key, (merged.get(key) ?? 0) + quantity);
+  }
   const variants = await getCheckoutVariants(lines.map((l) => String(l?.slug)));
   const items: OrderItemInput[] = [];
-  for (const line of lines) {
-    const v: CheckoutVariant | undefined = variants.get(`${line?.slug}|${line?.colour}|${line?.size}`);
-    const quantity = Math.floor(Number(line?.quantity));
+  for (const [key, quantity] of merged) {
+    const v: CheckoutVariant | undefined = variants.get(key);
     if (!v) {
       return { ok: false, error: "Some items in your bag are no longer available. Please review your bag and try again." };
     }
-    if (!(quantity >= 1 && quantity <= policy.maxQuantityPerLine)) {
+    if (quantity > policy.maxQuantityPerLine) {
       return { ok: false, error: "Please check the quantities in your bag and try again." };
     }
     if (v.stock < quantity) return { ok: false, error: outOfStockMessage(v.name, v.colour, v.size, v.stock) };
