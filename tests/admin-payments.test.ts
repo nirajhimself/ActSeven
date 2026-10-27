@@ -65,16 +65,15 @@ describe("admin sign-in", () => {
   });
 
   test("too many failures across all addresses pause sign-in for everyone", async () => {
-    const since = new Date();
-    await prisma().adminLoginAttempt.createMany({
-      data: Array.from({ length: GLOBAL_MAX_FAILURES }, (_, i) => ({ ip: `198.51.100.${i}`, success: false })),
-    });
+    // Recorded the way sign-in records them: timestamped by the database.
+    const rows = Array.from({ length: GLOBAL_MAX_FAILURES }, (_, i) => ({ ip: `198.51.100.${i}`, success: false }));
+    await db()`insert into admin_login_attempts ${db()(rows)}`;
     try {
       const res = await adminSignIn("admin", PASSWORD, { ip: "203.0.113.26" });
       assert.equal(res.ok, false);
       assert.match((res as { error: string }).error, /Too many failed attempts/);
     } finally {
-      await prisma().adminLoginAttempt.deleteMany({ where: { ip: { startsWith: "198.51.100." }, attemptedAt: { gte: since } } });
+      await db()`delete from admin_login_attempts where ip like '198.51.100.%'`;
     }
     assert.ok((await adminSignIn("admin", PASSWORD, { ip: "203.0.113.26" })).ok);
   });

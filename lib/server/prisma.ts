@@ -31,7 +31,14 @@ export function prisma() {
       maxLifetimeSeconds: 600,
       connectionTimeoutMillis: 20_000,
     });
-    globalThis.__actViiPrisma = new PrismaClient({ adapter });
+    globalThis.__actViiPrisma = new PrismaClient({
+      adapter,
+      // Prisma closes interactive transactions after 5 s by default. Against a
+      // distant database (~0.5–1 s a round trip) a product save with many
+      // variants takes longer, and the transaction was closed under it
+      // ("Transaction not found", P2028). These limits leave ample headroom.
+      transactionOptions: { maxWait: 10_000, timeout: 30_000 },
+    });
   }
   return globalThis.__actViiPrisma;
 }

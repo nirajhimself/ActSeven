@@ -1,7 +1,8 @@
 import "server-only";
 import { createHash, randomBytes } from "node:crypto";
 import { adminUsername, checkAdminCredentials, isAdminEnabled } from "@/lib/admin-auth";
-import type { Prisma } from "@prisma/client";
+import type postgres from "postgres";
+import { db as sqlDb } from "./db";
 import { prisma } from "./prisma";
 
 /**
@@ -21,24 +22,34 @@ const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
 export type AdminMeta = { ip: string; userAgent?: string | null };
 
+/**
+ * Both lockouts in one round trip: this address's failures since its last
+ * successful sign-in (a success clears the lock), and failures from every
+ * address, within the lockout window.
+ */
+async function lockoutState(sql: postgres.Sql | postgres.TransactionSql, ip: string) {
+  const [row] = await sql<{ ipFailures: number; lastFailure: Date | null; allFailures: number }[]>`
+    with recent as (
+      select ip, success, attempted_at from admin_login_attempts
+       where attempted_at >= now() - ${`${LOCKOUT_MINUTES} minutes`}::interval
+    )
+    select
+      (select count(*)::int from recent r
+        where r.ip = ${ip} and not r.success
+          and r.attempted_at > coalesce((select max(s.attempted_at) from recent s where s.ip = ${ip} and s.success), '-infinity'::timestamptz)
+      ) as "ipFailures",
+      (select max(attempted_at) from recent where ip = ${ip} and not success) as "lastFailure",
+      (select count(*)::int from recent where not success) as "allFailures"`;
+  const ipWait =
+    row.ipFailures >= MAX_FAILURES && row.lastFailure
+      ? Math.max(1, Math.ceil((row.lastFailure.getTime() + LOCKOUT_MINUTES * 60_000 - Date.now()) / 60_000))
+      : 0;
+  return { ipWait, allFailures: row.allFailures };
+}
+
 /** Minutes until an address may try again, or 0 if it isn't locked out. */
-export async function lockoutMinutes(ip: string, db: Prisma.TransactionClient = prisma()): Promise<number> {
-  const since = new Date(Date.now() - LOCKOUT_MINUTES * 60_000);
-  const failures = await db.adminLoginAttempt.findMany({
-    where: { ip, success: false, attemptedAt: { gte: since } },
-    orderBy: { attemptedAt: "desc" },
-    take: MAX_FAILURES,
-    select: { attemptedAt: true },
-  });
-  if (failures.length < MAX_FAILURES) return 0;
-  // A successful sign-in after the failures clears the lock.
-  const success = await db.adminLoginAttempt.findFirst({
-    where: { ip, success: true, attemptedAt: { gt: failures[failures.length - 1].attemptedAt } },
-    select: { id: true },
-  });
-  if (success) return 0;
-  const unlockAt = failures[0].attemptedAt.getTime() + LOCKOUT_MINUTES * 60_000;
-  return Math.max(1, Math.ceil((unlockAt - Date.now()) / 60_000));
+export async function lockoutMinutes(ip: string): Promise<number> {
+  return (await lockoutState(sqlDb(), ip)).ipWait;
 }
 
 export type SignInResult = { ok: true; token: string; expiresAt: Date } | { ok: false; error: string };
@@ -48,19 +59,18 @@ export async function adminSignIn(username: unknown, password: unknown, meta: Ad
 
   // Check the lockouts and record the attempt under one lock, so a burst of
   // parallel guesses is counted one by one instead of all passing the check.
-  const db = prisma();
-  const outcome = await db.$transaction(async (tx) => {
-    await tx.$executeRaw`select pg_advisory_xact_lock(hashtext('admin_sign_in'))`;
-    const wait = await lockoutMinutes(meta.ip, tx);
-    if (wait > 0) return { wait };
-    const recentFailures = await tx.adminLoginAttempt.count({
-      where: { success: false, attemptedAt: { gte: new Date(Date.now() - LOCKOUT_MINUTES * 60_000) } },
-    });
-    if (recentFailures >= GLOBAL_MAX_FAILURES) return { wait: LOCKOUT_MINUTES };
+  // Plain SQL with three round trips: an interactive Prisma transaction with
+  // more steps overran its time limit against a distant database.
+  const outcome = await sqlDb().begin(async (sql) => {
+    await sql`select pg_advisory_xact_lock(hashtext('admin_sign_in'))`;
+    const { ipWait, allFailures } = await lockoutState(sql, meta.ip);
+    if (ipWait > 0) return { wait: ipWait };
+    if (allFailures >= GLOBAL_MAX_FAILURES) return { wait: LOCKOUT_MINUTES };
     const ok = checkAdminCredentials(username, password);
-    await tx.adminLoginAttempt.create({ data: { ip: meta.ip, success: ok } });
+    await sql`insert into admin_login_attempts (ip, success) values (${meta.ip}, ${ok})`;
     return { ok };
   });
+  const db = prisma();
   if (outcome.wait) {
     return { ok: false, error: `Too many failed attempts. Try again in ${outcome.wait} minute${outcome.wait === 1 ? "" : "s"}.` };
   }
