@@ -19,12 +19,21 @@ export function isSampleDatabase() {
   return process.env.ACT_VII_SAMPLE_DB === "1";
 }
 
+/**
+ * Connections per client. The sample database (PGlite, see scripts/with-db.mjs)
+ * serves every socket from one session, so parallel transactions would
+ * interleave inside it; one connection makes them queue in the app instead.
+ */
+export function poolSize() {
+  return isSampleDatabase() ? 1 : 5;
+}
+
 /** Connection options that work for local Postgres and Supabase alike. */
 export function connectionOptions(url: string): postgres.Options<Record<string, never>> {
   const { hostname, port } = new URL(url);
   const local = hostname === "localhost" || hostname === "127.0.0.1";
   return {
-    max: 5,
+    max: poolSize(),
     idle_timeout: 20,
     // Recycle connections and give up on hung connects instead of waiting forever.
     max_lifetime: 60 * 10,

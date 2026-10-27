@@ -12,6 +12,9 @@ export async function register() {
     if (f.level === "error") console.error(line);
     else console.warn(line);
   }
+  // Recovers database connections that stop answering, without a restart.
+  const { isDatabaseConfigured } = await import("./lib/server/db");
+  if (isDatabaseConfigured()) (await import("./lib/server/db-watchdog")).startDbWatchdog();
 }
 
 /**

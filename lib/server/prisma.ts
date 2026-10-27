@@ -1,7 +1,7 @@
 import "server-only";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
-import { isDatabaseConfigured } from "./db";
+import { isDatabaseConfigured, poolSize } from "./db";
 
 declare global {
   var __actViiPrisma: PrismaClient | undefined;
@@ -22,14 +22,19 @@ export function prisma() {
     // (Supabase's pooler certificate isn't in Node's default trust store).
     const adapter = new PrismaPg({
       connectionString: url,
-      max: 5,
+      max: poolSize(),
       ssl: local ? false : { rejectUnauthorized: false },
       // A distant pooler (or a sleeping laptop) can drop idle connections;
       // keep-alives and recycling make it less likely we're handed a dead one.
+      // Probe after 10 s: left unset, the OS default applies (2 hours on Windows).
       keepAlive: true,
+      keepAliveInitialDelayMillis: 10_000,
       idleTimeoutMillis: 10_000,
       maxLifetimeSeconds: 600,
       connectionTimeoutMillis: 20_000,
+      // Give up on a query that gets no answer (e.g. a socket the network
+      // dropped) instead of waiting forever.
+      query_timeout: 30_000,
     });
     globalThis.__actViiPrisma = new PrismaClient({
       adapter,
@@ -41,6 +46,13 @@ export function prisma() {
     });
   }
   return globalThis.__actViiPrisma;
+}
+
+/** Discards the Prisma client so the next prisma() call starts with fresh connections. */
+export function resetPrisma() {
+  const stale = globalThis.__actViiPrisma;
+  globalThis.__actViiPrisma = undefined;
+  stale?.$disconnect().catch(() => {});
 }
 
 const TRANSIENT = /Connection terminated|ECONNRESET|ETIMEDOUT|EPIPE|terminating connection|Server has closed the connection|Connection ended/i;

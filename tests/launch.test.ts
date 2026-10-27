@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { checkConfig, hasErrors } from "@/lib/server/config";
+import { startDbWatchdog, stopDbWatchdog } from "@/lib/server/db-watchdog";
 
 const good = {
   NODE_ENV: "production",
@@ -55,6 +56,31 @@ describe("production configuration", () => {
   test("missing email is an error in production (sign-in needs it) and a warning in development", () => {
     assert.ok(keys({ ...good, EMAIL_FROM: "" }, "error").includes("RESEND_API_KEY"));
     assert.ok(keys({ ...good, NODE_ENV: "development", RESEND_API_KEY: "" }, "warning").includes("RESEND_API_KEY"));
+  });
+
+  test("the database watchdog replaces clients that stop answering, and leaves healthy ones alone", async () => {
+    const hung = () => new Promise(() => {});
+    const ended: string[] = [];
+    const stuckSql = Object.assign(() => hung(), { end: async () => void ended.push("sql") });
+    const stuckPrisma = { $queryRaw: () => hung(), $disconnect: async () => void ended.push("prisma") };
+    globalThis.__actViiSql = stuckSql as unknown as typeof globalThis.__actViiSql;
+    globalThis.__actViiPrisma = stuckPrisma as unknown as typeof globalThis.__actViiPrisma;
+    startDbWatchdog({ everyMs: 20, answerWithinMs: 30 });
+    try {
+      await new Promise((r) => setTimeout(r, 200));
+      assert.equal(globalThis.__actViiSql, undefined, "postgres.js pool discarded");
+      assert.equal(globalThis.__actViiPrisma, undefined, "Prisma client discarded");
+      assert.deepEqual(ended.sort(), ["prisma", "sql"]);
+
+      const healthy = Object.assign(async () => [{ "?column?": 1 }], { end: async () => void ended.push("healthy") });
+      globalThis.__actViiSql = healthy as unknown as typeof globalThis.__actViiSql;
+      await new Promise((r) => setTimeout(r, 120));
+      assert.equal(globalThis.__actViiSql, healthy as unknown as typeof globalThis.__actViiSql, "a healthy pool is kept");
+    } finally {
+      stopDbWatchdog();
+      globalThis.__actViiSql = undefined;
+      globalThis.__actViiPrisma = undefined;
+    }
   });
 
   test("findings never contain secret values", () => {
