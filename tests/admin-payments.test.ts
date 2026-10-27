@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { createHash, createHmac, randomUUID } from "node:crypto";
 import { after, before, describe, test } from "node:test";
 import { adminSignIn, audit, endAdminSession, getAdminSession, GLOBAL_MAX_FAILURES, lockoutMinutes, MAX_FAILURES } from "@/lib/server/admin-session";
+import { getOverview } from "@/lib/server/admin-overview";
 import { isValidImageUrl, parseProductForm, saveProduct } from "@/lib/server/admin-products";
 import { issueLoginCode, MAX_CODES_PER_IP_PER_HOUR, verifyLoginCode } from "@/lib/server/auth";
 import { db } from "@/lib/server/db";
@@ -98,6 +99,16 @@ describe("admin sign-in", () => {
     }
     assert.equal(await getAdminSession("not-a-real-token"), null);
     assert.equal(await getAdminSession(undefined), null);
+  });
+
+  test("the overview's figures come back in one query, with real dates", async () => {
+    const o = await getOverview();
+    for (const n of [o.today.orders, o.today.revenue, o.queue.toShip, o.queue.awaitingPayment, o.queue.returnsRequested, o.queue.refundsFailed, o.stock.soldOut, o.stock.low, o.products.active, o.products.draft]) {
+      assert.equal(typeof n, "number");
+    }
+    assert.ok(o.products.active > 0);
+    assert.ok(o.recentOrders.length <= 6 && o.paymentEvents.length <= 6);
+    for (const r of o.recentOrders) assert.ok(r.createdAt instanceof Date && !Number.isNaN(r.createdAt.getTime()));
   });
 
   test("admin is unavailable without a strong password", async () => {

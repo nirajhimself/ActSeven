@@ -90,10 +90,31 @@ export async function adminSignIn(username: unknown, password: unknown, meta: Ad
   return { ok: true, token, expiresAt };
 }
 
+type AdminSessionRow = { username: string; ip: string | null; expiresAt: Date };
+
+/**
+ * Sessions recently confirmed in the database, so every admin page and action
+ * doesn't pay a database round trip (~0.4 s to a distant database) just to
+ * check the cookie. Entries are dropped on sign-out in this server; another
+ * server instance may accept a signed-out session for up to SESSION_RECHECK_MS.
+ */
+const SESSION_RECHECK_MS = 60_000;
+const confirmed = new Map<string, { row: AdminSessionRow; until: number }>();
+
 /** The signed-in admin for a session token, or null if it's missing, unknown or expired. */
 export async function getAdminSession(token: string | undefined | null) {
   if (!token || token.length > 200 || !isAdminEnabled()) return null;
-  const session = await withReadRetry(() => prisma().adminSession.findUnique({ where: { id: sha256(token) } }));
+  const id = sha256(token);
+  const now = Date.now();
+  const hit = confirmed.get(id);
+  let session: AdminSessionRow | null = hit && hit.until > now ? hit.row : null;
+  if (!session) {
+    session = await withReadRetry(() => prisma().adminSession.findUnique({ where: { id } }));
+    if (session) {
+      if (confirmed.size > 1_000) confirmed.clear();
+      confirmed.set(id, { row: session, until: now + SESSION_RECHECK_MS });
+    } else confirmed.delete(id);
+  }
   if (!session || session.expiresAt.getTime() <= Date.now()) return null;
   // A changed ADMIN_USER invalidates existing sessions.
   if (session.username !== adminUsername()) return null;
@@ -101,7 +122,9 @@ export async function getAdminSession(token: string | undefined | null) {
 }
 
 export async function endAdminSession(token: string | undefined | null) {
-  if (token) await prisma().adminSession.deleteMany({ where: { id: sha256(token) } });
+  if (!token) return;
+  confirmed.delete(sha256(token));
+  await prisma().adminSession.deleteMany({ where: { id: sha256(token) } });
 }
 
 /** Records an admin change. Never throws: a logging failure must not undo the change. */
