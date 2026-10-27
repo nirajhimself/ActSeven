@@ -4,7 +4,6 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
-import { getCheckoutPrefillAction } from "@/app/account/actions";
 import { confirmRazorpayPayment, placeOrder, placeTestOrder, type CheckoutFields } from "@/app/checkout/actions";
 import { LineIssue } from "@/components/cart/CartLines";
 import { ReviewBagNote } from "@/components/cart/CartSummary";
@@ -75,6 +74,8 @@ function forgetCheckoutAttempt() {
 }
 
 type FieldErrors = Partial<Record<keyof CheckoutFields, string>>;
+/** From /api/checkout/prefill (null for guests). */
+type Prefill = { email: string; name: string | null; phone: string | null; addresses: Address[] };
 
 function Field({
   label,
@@ -156,7 +157,9 @@ export function CheckoutForm({ razorpayEnabled, testMode = false }: { razorpayEn
   // Signed-in shoppers: prefill email and the default address (never overwriting typed input).
   useEffect(() => {
     let cancelled = false;
-    getCheckoutPrefillAction()
+    // A Route Handler, not a Server Action, so it isn't queued behind the bag sync.
+    fetch("/api/checkout/prefill", { cache: "no-store" })
+      .then((res) => (res.ok ? (res.json() as Promise<Prefill | null>) : null))
       .then((p) => {
         if (cancelled || !p) return;
         setAccount({ email: p.email, addresses: p.addresses });

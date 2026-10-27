@@ -1,20 +1,7 @@
 "use server";
 
-import type { PaymentMethod } from "@/lib/pricing";
 import { getCurrentCustomer } from "@/lib/server/auth";
-import { checkCart, getCustomerCart, mergeCartLines, saveCustomerCart, cleanLines, type CartCheck, type CartLineInput } from "@/lib/server/cart";
-import { isDatabaseConfigured } from "@/lib/server/db";
-
-/** Live check of a bag: availability and current prices per line, plus server totals. Read-only. */
-export async function checkCartAction(lines: CartLineInput[], method?: PaymentMethod): Promise<CartCheck | null> {
-  if (!isDatabaseConfigured()) return null;
-  try {
-    return await checkCart(lines, method === "cod" ? "cod" : method === "razorpay" ? "razorpay" : undefined);
-  } catch (err) {
-    console.error("[cart] check failed", err);
-    return null;
-  }
-}
+import { getCustomerCart, mergeCartLines, saveCustomerCart, cleanLines, type CartLineInput } from "@/lib/server/cart";
 
 /**
  * Signed-in only: merges this device's bag with the one saved on the account,

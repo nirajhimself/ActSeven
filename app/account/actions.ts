@@ -9,12 +9,10 @@ import {
   addWishlistItems,
   deleteAddress,
   getWishlist,
-  listAddresses,
   removeWishlistItem,
   saveAddress,
   setDefaultAddress,
   updateProfile,
-  type Address,
 } from "@/lib/server/customers";
 import { clientIp } from "@/lib/server/client-ip";
 import { isEmailConfigured, sendLoginCode } from "@/lib/server/email";
@@ -149,12 +147,4 @@ export async function setWishlistItemAction(slug: string, saved: boolean) {
   if (!customer || (await validSlugs([slug])).length === 0) return;
   if (saved) await addWishlistItems(customer.id, [slug]);
   else await removeWishlistItem(customer.id, slug);
-}
-
-// ---------------------------------------------------------------- checkout prefill
-
-export async function getCheckoutPrefillAction(): Promise<{ email: string; name: string | null; phone: string | null; addresses: Address[] } | null> {
-  const customer = await getCurrentCustomer();
-  if (!customer) return null;
-  return { email: customer.email, name: customer.name, phone: customer.phone, addresses: await listAddresses(customer.id) };
 }

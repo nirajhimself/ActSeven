@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { checkCartAction } from "@/app/cart/actions";
 import type { CartCheck } from "@/lib/server/cart";
 import type { CartLine, ResolvedLine } from "./cart";
 import type { PaymentMethod } from "./pricing";
@@ -22,7 +21,10 @@ export function useCartCheck(lines: CartLine[], method?: PaymentMethod, refresh 
     if (plain.length === 0) return;
     let cancelled = false;
     const timer = setTimeout(() => {
-      checkCartAction(plain, method)
+      // A Route Handler, not a Server Action: actions run one at a time, so the
+      // check would wait behind the bag sync the page starts on load.
+      fetch("/api/cart/check", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lines: plain, method }) })
+        .then((res) => (res.ok ? (res.json() as Promise<CartCheck | null>) : null))
         .then((check) => !cancelled && setResult({ key, check }))
         .catch(() => !cancelled && setResult({ key, check: null }));
     }, 300);
