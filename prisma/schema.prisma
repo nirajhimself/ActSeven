@@ -485,3 +485,16 @@ model PaymentEvent {
 
   @@map("payment_events")
 }
+
+/// Product photos uploaded from the admin, served at /media/<id> (lib/server/media.ts).
+/// The id is derived from the content, so a URL never changes what it shows.
+model Media {
+  id          String   @id
+  contentType String   @map("content_type")
+  bytes       Bytes
+  size        Int
+  uploadedBy  String?  @map("uploaded_by")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("media")
+}

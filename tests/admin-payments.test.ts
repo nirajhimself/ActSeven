@@ -9,6 +9,7 @@ import { after, before, describe, test } from "node:test";
 import { adminSignIn, audit, endAdminSession, getAdminSession, GLOBAL_MAX_FAILURES, lockoutMinutes, MAX_FAILURES } from "@/lib/server/admin-session";
 import { getOverview } from "@/lib/server/admin-overview";
 import { isValidImageUrl, parseProductForm, saveProduct } from "@/lib/server/admin-products";
+import { getMedia, MAX_MEDIA_BYTES, mediaUrl, saveMedia } from "@/lib/server/media";
 import { issueLoginCode, MAX_CODES_PER_IP_PER_HOUR, verifyLoginCode } from "@/lib/server/auth";
 import { db } from "@/lib/server/db";
 import { attachRazorpayOrder, cancelOrder, createOrder, getOrder } from "@/lib/server/orders";
@@ -188,6 +189,24 @@ describe("product management", () => {
     );
     assert.ok(errors.name && errors.slug && errors.price && errors.colourIds && errors.images);
     assert.deepEqual(parseProductForm(form(base())).errors, {});
+  });
+
+  test("uploaded photos are stored by content, served back, and only real images are accepted", async () => {
+    const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from(randomUUID())]);
+    const saved = await saveMedia(png, "admin");
+    assert.ok(saved.ok);
+    assert.match(saved.id, /^[a-f0-9]{32}.png$/);
+    assert.deepEqual(await saveMedia(png, "admin"), saved, "same file, same id");
+    const media = await getMedia(saved.id);
+    assert.equal(media?.contentType, "image/png");
+    assert.ok(media?.bytes.equals(png));
+    assert.ok(isValidImageUrl(mediaUrl(saved.id)), "the URL is accepted by the product form");
+
+    const svg = await saveMedia(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'), "admin");
+    assert.equal(svg.ok, false, "SVG (can carry scripts) is refused");
+    assert.equal((await saveMedia(Buffer.alloc(0), "admin")).ok, false);
+    assert.equal((await saveMedia(Buffer.alloc(MAX_MEDIA_BYTES + 1, 0xff), "admin")).ok, false, "too large");
+    assert.equal(await getMedia("../../etc/passwd"), null);
   });
 
   test("image URLs must be https or a /public path", () => {

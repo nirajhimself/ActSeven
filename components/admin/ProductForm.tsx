@@ -1,7 +1,8 @@
 "use client";
 
 import { useId, useRef, useState, useTransition, type ReactNode } from "react";
-import { addColourAction, saveProductAction } from "@/app/admin/products/actions";
+import { addColourAction, saveProductAction, uploadImageAction } from "@/app/admin/products/actions";
+import { shrinkImage } from "@/lib/shrink-image";
 import type { FieldErrors } from "@/lib/server/admin-products";
 
 export type EditableProduct = {
@@ -76,6 +77,7 @@ export function ProductForm({ product, options }: { product: EditableProduct; op
   const [pending, startTransition] = useTransition();
   const [slug, setSlug] = useState(product.slug);
   const [slugTouched, setSlugTouched] = useState(Boolean(product.id));
+  const urlInputs = useRef<(HTMLInputElement | null)[]>([]);
   const [images, setImages] = useState(() =>
     Array.from({ length: IMAGE_SLOTS }, (_, i) => product.images[i] ?? { url: "", alt: "", position: null }),
   );
@@ -258,8 +260,7 @@ export function ProductForm({ product, options }: { product: EditableProduct; op
 
       <Section title="Images">
         <p className="text-xs text-taupe">
-          Use an https:// image URL, or upload the file to <code>/public/products</code> and enter <code>/products/file.jpg</code>. The first
-          image is the main one. Focal point (optional) keeps the subject in frame when cropped, e.g. <code>50% 20%</code>.
+          Upload a photo from your device, or paste an https:// image URL. The first image is the main one. Focal point (optional) keeps the subject in frame when cropped, e.g. <code>50% 20%</code>.
         </p>
         {errors.images ? <p className="text-xs text-[#9b2c1f]">{errors.images}</p> : null}
         <ol className="space-y-3">
@@ -271,14 +272,27 @@ export function ProductForm({ product, options }: { product: EditableProduct; op
                   <img src={img.url} alt="" className="size-full object-cover" style={{ objectPosition: img.position ?? undefined }} />
                 ) : null}
               </div>
-              <input
-                name={`image.${i}.url`}
-                aria-label={`Image ${i + 1} URL`}
-                placeholder={i === 0 ? "Main image URL" : `Image ${i + 1} URL (optional)`}
-                defaultValue={img.url}
-                onBlur={(e) => setImages((list) => list.map((x, j) => (j === i ? { ...x, url: e.target.value.trim() } : x)))}
-                className={field}
-              />
+              <div>
+                <input
+                  ref={(el) => {
+                    urlInputs.current[i] = el;
+                  }}
+                  name={`image.${i}.url`}
+                  aria-label={`Image ${i + 1} URL`}
+                  placeholder={i === 0 ? "Main image URL" : `Image ${i + 1} URL (optional)`}
+                  defaultValue={img.url}
+                  onBlur={(e) => setImages((list) => list.map((x, j) => (j === i ? { ...x, url: e.target.value.trim() } : x)))}
+                  className={field}
+                />
+                <ImageUpload
+                  label={`Image ${i + 1}`}
+                  onUploaded={(url) => {
+                    const input = urlInputs.current[i];
+                    if (input) input.value = url;
+                    setImages((list) => list.map((x, j) => (j === i ? { ...x, url } : x)));
+                  }}
+                />
+              </div>
               <input name={`image.${i}.alt`} aria-label={`Image ${i + 1} alt text`} placeholder="Alt text: what the photo shows" defaultValue={img.alt} className={field} />
               <input
                 name={`image.${i}.position`}
@@ -383,6 +397,49 @@ function AddColour() {
         {pending ? "Adding…" : "Add"}
       </button>
       {message ? <span role="status" className="text-xs text-taupe">{message}</span> : null}
+    </div>
+  );
+}
+
+/** "Upload photo": shrinks the chosen photo in the browser, stores it, and hands back its URL. */
+function ImageUpload({ label, onUploaded }: { label: string; onUploaded: (url: string) => void }) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  const upload = (file: File) =>
+    startTransition(async () => {
+      setError(null);
+      const data = new FormData();
+      data.set("file", await shrinkImage(file), file.name);
+      const res = await uploadImageAction(data).catch(() => ({ ok: false as const, error: "The photo couldn't be uploaded. Please try again." }));
+      if (res.ok) onUploaded(res.url);
+      else setError(res.error);
+    });
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/avif"
+        aria-label={`${label}: upload a photo`}
+        className="sr-only"
+        tabIndex={-1}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          if (file) upload(file);
+        }}
+      />
+      <button type="button" onClick={() => fileRef.current?.click()} disabled={pending} className="text-xs underline underline-offset-4 disabled:opacity-45">
+        {pending ? "Uploading…" : "Upload photo"}
+      </button>
+      {error ? (
+        <span role="alert" className="text-xs text-[#9b2c1f]">
+          {error}
+        </span>
+      ) : null}
     </div>
   );
 }

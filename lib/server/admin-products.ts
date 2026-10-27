@@ -102,7 +102,7 @@ export function parseProductForm(form: FormData): { input: ProductInput; errors:
     if (!url) continue;
     const alt = text(form.get(`image.${i}.alt`), 200);
     const position = text(form.get(`image.${i}.position`), 20) || null;
-    if (!isValidImageUrl(url)) errors.images = `Image ${i + 1}: use an https:// URL or a /path to a file in /public.`;
+    if (!isValidImageUrl(url)) errors.images = `Image ${i + 1}: upload a photo, or use an https:// URL.`;
     else if (alt.length < 3) errors.images = `Image ${i + 1}: describe the photo in the alt text (for screen readers).`;
     else if (position && !/^\d{1,3}% \d{1,3}%$/.test(position)) errors.images = `Image ${i + 1}: focal point looks like "50% 30%".`;
     images.push({ url, alt, position });
