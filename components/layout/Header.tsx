@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { LogoLockup } from "@/components/brand/Logo";
 import { BagIcon, MenuIcon, SearchIcon, UserIcon } from "@/components/ui/Icons";
 import { cartDrawer, cartTotals, resolveLines, useCart } from "@/lib/cart";
@@ -13,6 +13,8 @@ import { SearchDialog } from "./SearchDialog";
 
 /** Routes whose first section is a dark full-bleed image the header sits over. */
 const OVERLAY_ROUTES = new Set(["/"]);
+
+const subscribeNever = () => () => {};
 
 /** Reads the URL. Must render inside <Suspense> (see app/layout.tsx). */
 export function HeaderWithPath() {
@@ -30,6 +32,7 @@ export function Header({ pathname }: { pathname: string | null }) {
   const { lines } = useCart();
   const { products } = useCatalog();
   const count = useMemo(() => cartTotals(resolveLines(lines, products)).count, [lines, products]);
+  const hydrated = useSyncExternalStore(subscribeNever, () => true, () => false);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24);
@@ -50,6 +53,12 @@ export function Header({ pathname }: { pathname: string | null }) {
   return (
     <>
       <header
+        // Re-created once after hydration. React doesn't repair attribute
+        // mismatches, so if the URL changed while the page was hydrating (a
+        // click replayed by React), the server's classes and active link would
+        // otherwise stick, e.g. the home page's transparent style leaving an
+        // invisible header over every other page.
+        key={hydrated ? "client" : "server"}
         className={`sticky top-0 z-40 transition-colors duration-500 ${
           overlay
             ? "bg-transparent text-ivory"
