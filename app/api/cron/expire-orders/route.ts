@@ -5,9 +5,10 @@ import { CATALOG_TAG } from "@/lib/server/catalog";
 import { expireStalePendingOrders } from "@/lib/server/inventory";
 
 /**
- * Releases stock held by abandoned online payments. Schedule it every ~15 min
- * (e.g. Vercel Cron) with header `Authorization: Bearer <CRON_SECRET>`.
- * Checkout also runs the same sweep opportunistically.
+ * Releases stock held by abandoned online payments. Called by Vercel Cron
+ * (vercel.json: daily on Hobby; every 15 min is better on Pro) with header
+ * `Authorization: Bearer <CRON_SECRET>`. Checkout and the admin orders page
+ * also run the same sweep as they go.
  */
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET ?? "";
