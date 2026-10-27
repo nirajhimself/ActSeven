@@ -113,6 +113,12 @@ async function AdminOrder({
                     <td className="py-3 text-right tabular-nums">{formatINR(i.unitPrice * i.quantity)}</td>
                   </tr>
                 ))}
+                {order.discountAmount ? (
+                  <tr>
+                    <td className="pt-3 text-taupe">Discount{order.discountCode ? ` (${order.discountCode})` : ""}</td>
+                    <td className="pt-3 text-right tabular-nums">−{formatINR(order.discountAmount)}</td>
+                  </tr>
+                ) : null}
                 <tr>
                   <td className="pt-3 text-taupe">Shipping{order.codFee ? " + COD fee" : ""}</td>
                   <td className="pt-3 text-right tabular-nums">{formatINR(order.shipping + order.codFee)}</td>

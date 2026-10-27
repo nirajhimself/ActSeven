@@ -11,7 +11,18 @@ type Item = { id: string; productName: string; colour: string; size: string; uni
 const inputClass =
   "block min-h-12 w-full border border-obsidian/20 bg-ivory px-3.5 text-sm outline-none transition-colors focus:border-obsidian";
 
-export function ReturnRequestForm({ orderId, items, deadline }: { orderId: string; items: Item[]; deadline: string }) {
+export function ReturnRequestForm({
+  orderId,
+  items,
+  deadline,
+  order,
+}: {
+  orderId: string;
+  items: Item[];
+  deadline: string;
+  /** The order's product subtotal and coupon discount, so the amount shown matches what the server will refund. */
+  order: { subtotal: number; discountAmount: number };
+}) {
   const id = useId();
   const [open, setOpen] = useState(false);
   const [qty, setQty] = useState<Record<string, number>>({});
@@ -22,7 +33,9 @@ export function ReturnRequestForm({ orderId, items, deadline }: { orderId: strin
   const [pending, startTransition] = useTransition();
 
   const chosen = items.filter((i) => (qty[i.id] ?? 0) > 0);
-  const amount = chosen.reduce((sum, i) => sum + i.unitPrice * qty[i.id], 0);
+  const full = chosen.reduce((sum, i) => sum + i.unitPrice * qty[i.id], 0);
+  // Same rule as the server (lib/server/returns.ts): a coupon's share comes off each item.
+  const amount = order.discountAmount > 0 && order.subtotal > 0 ? Math.round((full * (order.subtotal - order.discountAmount)) / order.subtotal) : full;
 
   if (done) {
     return (

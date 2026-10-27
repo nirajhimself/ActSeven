@@ -143,6 +143,12 @@ async function OrderContent({ params }: { params: PageProps<"/orders/[id]">["par
               <dt>Subtotal</dt>
               <dd className="tabular-nums">{formatINR(order.subtotal)}</dd>
             </div>
+            {order.discountAmount ? (
+              <div className="flex justify-between">
+                <dt>Discount{order.discountCode ? ` (${order.discountCode})` : ""}</dt>
+                <dd className="tabular-nums">−{formatINR(order.discountAmount)}</dd>
+              </div>
+            ) : null}
             <div className="flex justify-between">
               <dt>Shipping</dt>
               <dd className="tabular-nums">{order.shipping ? formatINR(order.shipping) : "Complimentary"}</dd>
@@ -272,6 +278,7 @@ async function OrderReturns({ order, returns, refunds }: { order: Order; returns
         <div className="mt-6">
           <ReturnRequestForm
             orderId={order.id}
+            order={{ subtotal: order.subtotal, discountAmount: order.discountAmount }}
             deadline={longDate.format(deadline)}
             items={order.items.map((i) => ({
               id: i.id,

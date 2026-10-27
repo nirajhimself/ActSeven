@@ -33,6 +33,7 @@ function layout(title: string, intro: string, order: Order, extra = "") {
     <tr><td style="font-size:12px;letter-spacing:1.5px;color:#6e655a;padding:8px 0 20px">ORDER ${esc(order.number)}</td></tr>
     ${extra}
     <tr><td><table role="presentation" width="100%" style="font-size:14px">${rows}
+      ${order.discountAmount ? `<tr><td style="padding:8px 0 0">Discount${order.discountCode ? ` (${esc(order.discountCode)})` : ""}</td><td style="padding:8px 0 0;text-align:right">−${formatINR(order.discountAmount)}</td></tr>` : ""}
       <tr><td style="padding:8px 0 0">Shipping</td><td style="padding:8px 0 0;text-align:right">${order.shipping ? formatINR(order.shipping) : "Complimentary"}</td></tr>
       ${order.codFee ? `<tr><td>COD fee</td><td style="text-align:right">${formatINR(order.codFee)}</td></tr>` : ""}
       <tr><td style="padding-top:8px;font-weight:bold">Total</td><td style="padding-top:8px;text-align:right;font-weight:bold">${formatINR(order.total)}</td></tr>

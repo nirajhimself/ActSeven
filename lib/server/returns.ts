@@ -128,7 +128,7 @@ export async function createReturn(
   const comment = input.comment.trim().slice(0, 500) || null;
 
   return db().begin(async (tx) => {
-    const [order] = await tx`select status, delivered_at from orders where id = ${orderId} for update`;
+    const [order] = await tx`select status, delivered_at, subtotal, discount_amount from orders where id = ${orderId} for update`;
     if (!order) return { ok: false, error: "Order not found." };
     if (order.status !== "delivered" || !order.delivered_at) {
       return { ok: false, error: "Returns can be requested once your order has been delivered." };
@@ -150,6 +150,10 @@ export async function createReturn(
         return { ok: false, error: "Some of those items can't be returned. Please refresh and try again." };
       }
       amount += item.unit_price * w.quantity;
+    }
+    // A coupon took its share off every item: refund what was actually paid for these.
+    if (order.discount_amount > 0 && order.subtotal > 0) {
+      amount = Math.round((amount * (order.subtotal - order.discount_amount)) / order.subtotal);
     }
 
     const id = randomUUID();
