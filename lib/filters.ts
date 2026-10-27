@@ -1,4 +1,4 @@
-import { isSoldOut, sizeStatus, type Category, type Product, type Style } from "./catalog";
+import { isSoldOut, priceRange, sizeStatus, type Category, type Product, type Style } from "./catalog";
 
 export type SortKey = "featured" | "newest" | "price-asc" | "price-desc";
 
@@ -81,7 +81,8 @@ export function applyFilters(items: Product[], f: FilterState, categories: Categ
     if (f.style.length && !p.styles.some((s) => f.style.includes(s))) return false;
     if (f.price.length) {
       const bands = priceBands.filter((b) => f.price.includes(b.value));
-      if (!bands.some((b) => p.price >= b.min && p.price <= b.max)) return false;
+      const from = priceRange(p).min;
+      if (!bands.some((b) => from >= b.min && from <= b.max)) return false;
     }
     if (f.inStock && isSoldOut(p)) return false;
     return true;
@@ -91,9 +92,9 @@ export function applyFilters(items: Product[], f: FilterState, categories: Categ
     case "newest":
       return [...filtered].sort((a, b) => b.addedOn.localeCompare(a.addedOn));
     case "price-asc":
-      return [...filtered].sort((a, b) => a.price - b.price);
+      return [...filtered].sort((a, b) => priceRange(a).min - priceRange(b).min);
     case "price-desc":
-      return [...filtered].sort((a, b) => b.price - a.price);
+      return [...filtered].sort((a, b) => priceRange(b).min - priceRange(a).min);
     default:
       return filtered;
   }
@@ -113,7 +114,7 @@ export function facetsFor(items: Product[], categories: Category[]) {
     categories: categories.filter((c) => items.some((p) => p.category === c.slug)),
     sizes,
     colours: [...colourMap.values()],
-    prices: priceBands.filter((b) => items.some((p) => p.price >= b.min && p.price <= b.max)),
+    prices: priceBands.filter((b) => items.some((p) => priceRange(p).min >= b.min && priceRange(p).min <= b.max)),
     styles: styleOptions.filter((s) => items.some((p) => p.styles.includes(s.value))),
   };
 }

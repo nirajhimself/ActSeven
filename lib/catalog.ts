@@ -1,3 +1,4 @@
+import { formatINR } from "./format";
 import type { Photo } from "./photos";
 
 /**
@@ -74,6 +75,18 @@ export function findCategory(categories: Category[], slug: string) {
 
 export function getVariant(product: Product, colour: string, size: string) {
   return product.variants.find((v) => v.colour === colour && v.size === size);
+}
+
+/** Lowest and highest price across the product's colours and sizes (the product price if it has none). */
+export function priceRange(product: Product) {
+  const prices = product.variants.length ? product.variants.map((v) => v.price) : [product.price];
+  return { min: Math.min(...prices), max: Math.max(...prices) };
+}
+
+/** The price a shopper sees before choosing: "₹11,999", or "From ₹11,999" when colours/sizes are priced differently. */
+export function priceLabel(product: Product) {
+  const { min, max } = priceRange(product);
+  return min < max ? `From ${formatINR(min)}` : formatINR(min);
 }
 
 /** The price for a colour/size, falling back to the product price. */

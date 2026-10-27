@@ -9,7 +9,7 @@ import { ProductPurchase } from "@/components/product/ProductPurchase";
 import { ProductPrice } from "@/components/product/ProductPrice";
 import { Breadcrumbs } from "@/components/ui/Breadcrumbs";
 import { ReturnIcon, ThreadIcon, TruckIcon } from "@/components/ui/Icons";
-import { findCategory, isSoldOut, recommendationsFor } from "@/lib/catalog";
+import { findCategory, isSoldOut, priceLabel, priceRange, recommendationsFor } from "@/lib/catalog";
 import { formatINR } from "@/lib/format";
 import { getCatalog, getLiveStock } from "@/lib/server/catalog";
 import { policy, siteUrl } from "@/lib/site";
@@ -28,7 +28,7 @@ export async function generateMetadata({ params }: PageProps<"/products/[slug]">
   if (!product) return { title: "Not found", robots: { index: false, follow: false } };
   return {
     title: product.name,
-    description: `${product.summary} ${formatINR(product.price)}.`,
+    description: `${product.summary} ${priceLabel(product)}.`,
     openGraph: { images: [{ url: `${product.images[0].src}?w=1200&auto=format&fit=max` }] },
   };
 }
@@ -78,7 +78,7 @@ async function ProductContent({ params }: { params: PageProps<"/products/[slug]"
     offers: {
       "@type": "Offer",
       priceCurrency: "INR",
-      price: Math.min(...product.variants.map((v) => v.price), product.price),
+      price: priceRange(product).min,
       availability: isSoldOut(product) ? "https://schema.org/OutOfStock" : "https://schema.org/InStock",
     },
   };

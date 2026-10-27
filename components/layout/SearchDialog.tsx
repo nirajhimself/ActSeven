@@ -8,7 +8,7 @@ import { ArrowRightIcon, CloseIcon, SearchIcon } from "@/components/ui/Icons";
 import { Sheet } from "@/components/ui/Sheet";
 import { useCatalog } from "@/components/catalog/CatalogProvider";
 import { searchProducts } from "@/lib/filters";
-import { formatINR } from "@/lib/format";
+import { priceLabel } from "@/lib/catalog";
 
 const suggestions = ["Oxford shirt", "Blazer", "Trouser", "Merino", "Tweed"];
 
@@ -92,7 +92,7 @@ export function SearchDialog({ open, onClose }: { open: boolean; onClose: () => 
                         />
                       </div>
                       <p className="mt-2 text-xs">{p.name}</p>
-                      <p className="text-xs text-taupe">{formatINR(p.price)}</p>
+                      <p className="text-xs text-taupe">{priceLabel(p)}</p>
                     </Link>
                   </li>
                 ))}

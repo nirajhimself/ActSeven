@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useSyncExternalStore } from "react";
-import { variantPrice, type Product } from "@/lib/catalog";
+import { priceLabel, variantPrice, type Product } from "@/lib/catalog";
 import { formatINR } from "@/lib/format";
 
 type Selection = { colour: string; size: string | null };
@@ -28,13 +28,13 @@ export function usePublishSelection(slug: string, colour: string, size: string |
   }, [slug, colour, size]);
 }
 
-/** The product price, or the chosen colour/size's own price once a size is picked. */
+/** "₹X" or "From ₹X" until a size is picked, then that colour/size's own price. */
 export function ProductPrice({ product }: { product: Product }) {
   const selection = useSyncExternalStore(
     subscribe,
     () => selections.get(product.slug),
     () => undefined,
   );
-  const price = selection?.size ? variantPrice(product, selection.colour, selection.size) : product.price;
-  return <>{formatINR(price)}</>;
+  if (!selection?.size) return <>{priceLabel(product)}</>;
+  return <>{formatINR(variantPrice(product, selection.colour, selection.size))}</>;
 }

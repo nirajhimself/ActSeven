@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { ArrowRightIcon } from "@/components/ui/Icons";
 import { Photo } from "@/components/ui/Photo";
-import { isSoldOut, type Product } from "@/lib/catalog";
-import { formatINR } from "@/lib/format";
+import { isSoldOut, priceLabel, type Product } from "@/lib/catalog";
 import { Swatches } from "./Swatches";
 import { WishlistButton } from "./WishlistButton";
 
@@ -63,7 +62,7 @@ export function ProductCard({
               {product.name}
             </Link>
           </Heading>
-          <p className="text-xs font-medium tabular-nums">{formatINR(product.price)}</p>
+          <p className="text-xs font-medium tabular-nums">{priceLabel(product)}</p>
         </div>
         {showArrow ? (
           <ArrowRightIcon className="mt-6 size-4 shrink-0 transition-transform duration-300 group-hover:translate-x-1" />

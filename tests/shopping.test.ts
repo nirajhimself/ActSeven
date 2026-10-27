@@ -9,6 +9,9 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, describe, test } from "node:test";
 import { placeTestOrder } from "@/app/checkout/actions";
+import { priceLabel, type Product } from "@/lib/catalog";
+import { applyFilters, parseFilters, priceBands } from "@/lib/filters";
+import { formatINR } from "@/lib/format";
 import { codAvailable, computeTotals } from "@/lib/pricing";
 import { policy } from "@/lib/site";
 import { checkCart, checkLines, cleanLines, clearCustomerCart, getCustomerCart, mergeCartLines, saveCustomerCart } from "@/lib/server/cart";
@@ -62,6 +65,27 @@ describe("shipping and totals", () => {
     assert.equal(codAvailable(policy.codMaxOrderValue), true);
     assert.equal(codAvailable(policy.codMaxOrderValue + 1), false);
     assert.equal(codAvailable(0), false);
+  });
+});
+
+describe("per-variant prices in listings", () => {
+  const variant = (size: string, price: number) => ({ sku: size, colour: "Navy", size, price, stock: 5, lowStockThreshold: 3 });
+  const product = (slug: string, price: number, prices: number[]) =>
+    ({ slug, price, variants: prices.map((p, i) => variant(String(i), p)) }) as unknown as Product;
+
+  test("a product priced differently by colour/size shows \"From\" its lowest price", () => {
+    assert.equal(priceLabel(product("a", 12_999, [12_999, 11_999])), `From ${formatINR(11_999)}`);
+    assert.equal(priceLabel(product("b", 12_999, [12_999, 12_999])), formatINR(12_999));
+    assert.equal(priceLabel(product("c", 4_999, [])), formatINR(4_999));
+  });
+
+  test("sorting and the price filter use the lowest price", () => {
+    const cheapVariant = product("cheap-variant", 9_000, [9_000, 2_000]);
+    const mid = product("mid", 3_000, [3_000]);
+    assert.deepEqual(applyFilters([mid, cheapVariant], { ...parseFilters(new URLSearchParams()), sort: "price-asc" }, []).map((p) => p.slug), ["cheap-variant", "mid"]);
+    const band = priceBands.find((b) => 2_000 >= b.min && 2_000 <= b.max)!;
+    const f = { ...parseFilters(new URLSearchParams()), price: [band.value] };
+    assert.ok(applyFilters([cheapVariant], f, []).some((p) => p.slug === "cheap-variant"));
   });
 });
 
