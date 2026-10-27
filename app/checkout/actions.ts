@@ -22,6 +22,7 @@ import {
   type OrderItemInput,
 } from "@/lib/server/orders";
 import { clientIp } from "@/lib/server/client-ip";
+import { DiscountError, previewDiscount } from "@/lib/server/discounts";
 import { clearCustomerCart } from "@/lib/server/cart";
 import { createRazorpayOrder, isRazorpayConfigured, razorpayKeyId, verifyPaymentSignature } from "@/lib/server/razorpay";
 import { policy } from "@/lib/site";
@@ -46,10 +47,12 @@ export type PlaceOrderInput = {
   checkoutToken?: string;
   /** The total the shopper was shown. If the server's total differs, nothing is placed. */
   expectedTotal?: number;
+  /** Coupon code the shopper applied (checked again on the server). */
+  discountCode?: string;
 };
 
 export type PlaceOrderResult =
-  | { ok: false; error: string; code?: "PRICE_CHANGED"; fieldErrors?: Partial<Record<keyof CheckoutFields, string>> }
+  | { ok: false; error: string; code?: "PRICE_CHANGED" | "DISCOUNT_INVALID"; fieldErrors?: Partial<Record<keyof CheckoutFields, string>> }
   | { ok: true; method: "cod"; orderId: string }
   | {
       ok: true;
@@ -202,7 +205,17 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
   const items = priced.items;
 
   const subtotal = items.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
-  const totals = computeTotals(subtotal, method);
+
+  // A coupon is checked here for a clear message, then claimed again inside the order transaction.
+  let discountCode: string | null = null;
+  let discountAmount = 0;
+  if (typeof input.discountCode === "string" && input.discountCode.trim()) {
+    const preview = await previewDiscount(input.discountCode, subtotal, { email: fields.email, phone: fields.phone });
+    if (!preview.ok) return { ok: false, code: "DISCOUNT_INVALID", error: preview.error };
+    discountCode = preview.discount.code;
+    discountAmount = preview.discount.amount;
+  }
+  const totals = computeTotals(subtotal, method, discountAmount);
 
   // Never charge a total the shopper didn't see (e.g. a price changed after the page loaded).
   if (typeof input.expectedTotal === "number" && input.expectedTotal !== totals.total) {
@@ -232,6 +245,7 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
       customerId: account?.id,
       checkoutToken,
       clientIp: await clientIp(),
+      discountCode,
     });
     // Stock changed: refresh cached availability on listings (stale-while-revalidate).
     revalidateTag(CATALOG_TAG, "max");
@@ -284,6 +298,7 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
       const item = items.find((i) => i.slug === err.slug && i.colour === err.colour && i.size === err.size);
       return { ok: false, error: outOfStockMessage(item?.name ?? "An item in your bag", err.colour, err.size, err.available) };
     }
+    if (err instanceof DiscountError) return { ok: false, code: "DISCOUNT_INVALID", error: err.message };
     if (err instanceof OrderLimitError) {
       return {
         ok: false,

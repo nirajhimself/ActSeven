@@ -49,7 +49,7 @@ async function firstColour(slug: string) {
 
 describe("shipping and totals", () => {
   test("free shipping from the threshold, flat rate below it, none for an empty bag", () => {
-    assert.deepEqual(computeTotals(0), { subtotal: 0, shipping: 0, codFee: 0, total: 0 });
+    assert.deepEqual(computeTotals(0), { subtotal: 0, discount: 0, shipping: 0, codFee: 0, total: 0 });
     const below = computeTotals(policy.freeShippingThreshold - 1);
     assert.equal(below.shipping, policy.standardShipping);
     assert.equal(below.total, policy.freeShippingThreshold - 1 + policy.standardShipping);

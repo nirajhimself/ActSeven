@@ -2,6 +2,7 @@ import "server-only";
 import { randomBytes, randomUUID } from "node:crypto";
 import type { PaymentMethod } from "@/lib/pricing";
 import { db } from "./db";
+import { claimDiscount } from "./discounts";
 import { reclaimStock, reserveStock, restoreStock } from "./inventory";
 
 export type OrderStatus = "pending_payment" | "paid" | "cod_confirmed" | "payment_failed" | "shipped" | "delivered" | "cancelled" | "expired";
@@ -47,6 +48,9 @@ export type Order = {
   pincode: string;
   giftNote: string | null;
   subtotal: number;
+  /** Coupon applied to this order, if any, and what it took off the products. */
+  discountCode: string | null;
+  discountAmount: number;
   shipping: number;
   codFee: number;
   total: number;
@@ -95,12 +99,15 @@ export async function createOrder(input: {
   customer: CustomerInput;
   items: OrderItemInput[];
   method: PaymentMethod;
-  totals: { subtotal: number; shipping: number; codFee: number; total: number };
+  /** `discount` (default 0) is the coupon's amount; it must match `discountCode` when one is given. */
+  totals: { subtotal: number; discount?: number; shipping: number; codFee: number; total: number };
   customerId?: string | null;
   /** One per checkout attempt; a second order with the same token is refused. */
   checkoutToken?: string | null;
   /** The shopper's address, for the per-address limit ("unknown" or absent skips it). */
   clientIp?: string | null;
+  /** Coupon code (normalised). Re-checked under a lock; throws DiscountError if it can't be used. */
+  discountCode?: string | null;
 }): Promise<{ id: string; number: string; status: OrderStatus }> {
   // A clash on the random part of the order number is very unlikely; retry a few times if it happens.
   for (let attempt = 1; ; attempt++) {
@@ -137,12 +144,20 @@ async function insertOrder(input: Parameters<typeof createOrder>[0], number: str
          where status = 'cod_confirmed' and (phone = ${c.phone} or email = ${c.email})`;
       if (open >= MAX_OPEN_COD_ORDERS) throw new OrderLimitError("cod");
     }
+    const discountAmount = input.totals.discount ?? 0;
+    if (input.discountCode) {
+      await claimDiscount(tx, input.discountCode, input.totals.subtotal, { email: c.email, phone: c.phone }, discountAmount);
+    } else if (discountAmount !== 0) {
+      throw new Error("A discount amount needs a discount code");
+    }
     await tx`
       insert into orders (id, number, status, payment_method, email, phone, name, address1, address2, city, state, pincode,
-                          gift_note, subtotal, shipping, cod_fee, total, customer_id, stock_reserved, checkout_token, client_ip)
+                          gift_note, subtotal, discount_code, discount_amount, shipping, cod_fee, total, customer_id,
+                          stock_reserved, checkout_token, client_ip)
       values (${id}, ${number}, ${status}, ${input.method}, ${c.email}, ${c.phone}, ${c.name}, ${c.address1},
               ${c.address2 || null}, ${c.city}, ${c.state}, ${c.pincode}, ${c.giftNote || null},
-              ${input.totals.subtotal}, ${input.totals.shipping}, ${input.totals.codFee}, ${input.totals.total},
+              ${input.totals.subtotal}, ${input.discountCode ?? null}, ${discountAmount},
+              ${input.totals.shipping}, ${input.totals.codFee}, ${input.totals.total},
               ${input.customerId ?? null}, true, ${input.checkoutToken ?? null}, ${ip})`;
     // Throws OutOfStockError (rolling back the whole order) if a variant ran out.
     await reserveStock(
@@ -274,6 +289,8 @@ export async function getOrder(id: string): Promise<Order | null> {
     pincode: row.pincode,
     giftNote: row.gift_note,
     subtotal: row.subtotal,
+    discountCode: row.discount_code,
+    discountAmount: row.discount_amount,
     shipping: row.shipping,
     codFee: row.cod_fee,
     total: row.total,

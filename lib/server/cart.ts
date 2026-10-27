@@ -1,6 +1,7 @@
 import "server-only";
 import { computeTotals, type PaymentMethod } from "@/lib/pricing";
 import { policy } from "@/lib/site";
+import { previewDiscount, type AppliedDiscount } from "./discounts";
 import { prisma, withReadRetry } from "./prisma";
 import { getCheckoutVariants, type CheckoutVariant } from "./products";
 
@@ -33,8 +34,10 @@ export type CartCheck = {
   lines: CheckedLine[];
   /** True if any line would make checkout fail. */
   blocking: boolean;
-  /** Totals for the lines that can be bought, priced on the server. */
+  /** Totals for the lines that can be bought, priced on the server (including a valid discount). */
   totals: ReturnType<typeof computeTotals>;
+  /** The coupon asked about, if any: applied, or why it can't be. */
+  discount?: ({ ok: true } & AppliedDiscount) | { ok: false; code: string; error: string };
 };
 
 export const lineKey = (l: { slug: string; colour: string; size: string }) => `${l.slug}|${l.colour}|${l.size}`;
@@ -73,11 +76,19 @@ export function checkLines(lines: CartLineInput[], variants: Map<string, Checkou
   return { lines: checked, blocking: checked.some((l) => l.status !== "ok"), totals: computeTotals(subtotal, method) };
 }
 
-/** Checks a bag against the database (live prices and stock). */
-export async function checkCart(raw: unknown, method?: PaymentMethod): Promise<CartCheck> {
+/** Checks a bag against the database (live prices and stock), and a coupon code if given. */
+export async function checkCart(raw: unknown, method?: PaymentMethod, code?: unknown): Promise<CartCheck> {
   const lines = cleanLines(raw);
   if (lines.length === 0) return { lines: [], blocking: false, totals: computeTotals(0, method) };
-  return checkLines(lines, await getCheckoutVariants(lines.map((l) => l.slug)), method);
+  const check = checkLines(lines, await getCheckoutVariants(lines.map((l) => l.slug)), method);
+  if (code === undefined || code === null || code === "") return check;
+  const result = await previewDiscount(code, check.totals.subtotal);
+  if (!result.ok) return { ...check, discount: { ok: false, code: String(code).slice(0, 40), error: result.error } };
+  return {
+    ...check,
+    totals: computeTotals(check.totals.subtotal, method, result.discount.amount),
+    discount: { ok: true, ...result.discount },
+  };
 }
 
 // ---------------------------------------------------------------- account carts

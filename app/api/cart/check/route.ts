@@ -9,10 +9,10 @@ import { isDatabaseConfigured } from "@/lib/server/db";
  */
 export async function POST(request: Request) {
   if (!isDatabaseConfigured()) return Response.json(null);
-  const body = (await request.json().catch(() => null)) as { lines?: unknown; method?: unknown } | null;
+  const body = (await request.json().catch(() => null)) as { lines?: unknown; method?: unknown; code?: unknown } | null;
   const method = body?.method === "cod" ? "cod" : body?.method === "razorpay" ? "razorpay" : undefined;
   try {
-    return Response.json(await checkCart(body?.lines, method), { headers: { "Cache-Control": "no-store" } });
+    return Response.json(await checkCart(body?.lines, method, body?.code), { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
     console.error("[cart] check failed", err);
     return Response.json(null, { status: 503 });

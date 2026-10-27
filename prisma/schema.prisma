@@ -175,8 +175,12 @@ model Discount {
   maxDiscount Int?      @map("max_discount")
   startsAt    DateTime? @map("starts_at") @db.Timestamptz(6)
   endsAt      DateTime? @map("ends_at") @db.Timestamptz(6)
+  /// Total redemptions allowed; counted from orders that weren't cancelled, expired or failed.
   usageLimit  Int?      @map("usage_limit")
+  /// Legacy counter, not maintained: usage is counted from orders.discount_code.
   timesUsed   Int       @default(0) @map("times_used")
+  /// One redemption per customer (matched by email or phone).
+  oncePerCustomer Boolean @default(false) @map("once_per_customer")
   active      Boolean   @default(true)
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
@@ -321,6 +325,7 @@ model Order {
 
   @@index([createdAt(sort: Desc)], map: "orders_created_at_idx")
   @@index([clientIp, createdAt(sort: Desc)], map: "orders_client_ip_idx")
+  @@index([discountCode], map: "orders_discount_code_idx")
   @@index([status], map: "orders_status_idx")
   @@index([customerId], map: "orders_customer_idx")
   @@map("orders")
