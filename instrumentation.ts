@@ -14,7 +14,15 @@ export async function register() {
   }
   // Recovers database connections that stop answering, without a restart.
   const { isDatabaseConfigured } = await import("./lib/server/db");
-  if (isDatabaseConfigured()) (await import("./lib/server/db-watchdog")).startDbWatchdog();
+  if (isDatabaseConfigured()) {
+    (await import("./lib/server/db-watchdog")).startDbWatchdog();
+    // Open a connection in each client now, so the first visitor doesn't wait
+    // for it (several seconds to a distant database). Failures are harmless.
+    const { db } = await import("./lib/server/db");
+    const { prisma } = await import("./lib/server/prisma");
+    db()`select 1`.catch(() => {});
+    prisma().$queryRaw`select 1`.catch(() => {});
+  }
 }
 
 /**
