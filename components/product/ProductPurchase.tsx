@@ -6,6 +6,7 @@ import { MinusIcon, PlusIcon } from "@/components/ui/Icons";
 import { addToCart, cartDrawer } from "@/lib/cart";
 import { isSoldOut, sizeStatus, type Product, type StockLevels } from "@/lib/catalog";
 import { policy } from "@/lib/site";
+import { usePublishSelection } from "./ProductPrice";
 import { SizeGuide } from "./SizeGuide";
 import { WishlistButton } from "./WishlistButton";
 
@@ -21,6 +22,7 @@ export function ProductPurchase({ product, stock = null }: { product: Product; s
   const [added, setAdded] = useState(false);
   const sizeGroupRef = useRef<HTMLFieldSetElement>(null);
   const ids = { colour: useId(), size: useId(), error: useId(), qty: useId() };
+  usePublishSelection(product.slug, colour, size);
 
   const soldOut = isSoldOut(product, stock);
   const status = size ? sizeStatus(product, size, colour, stock) : null;

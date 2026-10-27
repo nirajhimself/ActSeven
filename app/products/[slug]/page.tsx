@@ -6,6 +6,7 @@ import { ProductDetails } from "@/components/product/ProductDetails";
 import { ProductGallery } from "@/components/product/ProductGallery";
 import { ProductGrid } from "@/components/product/ProductGrid";
 import { ProductPurchase } from "@/components/product/ProductPurchase";
+import { ProductPrice } from "@/components/product/ProductPrice";
 import { Breadcrumbs } from "@/components/ui/Breadcrumbs";
 import { ReturnIcon, ThreadIcon, TruckIcon } from "@/components/ui/Icons";
 import { findCategory, isSoldOut, recommendationsFor } from "@/lib/catalog";
@@ -101,7 +102,7 @@ async function ProductContent({ params }: { params: PageProps<"/products/[slug]"
           <div className="md:sticky md:top-28 md:self-start">
             <h1 className="display text-4xl lg:text-5xl">{product.name}</h1>
             <p className="mt-3 text-lg tabular-nums">
-              {formatINR(product.price)}
+              <ProductPrice product={product} />
               <span className="ml-2 text-xs text-taupe">incl. of all taxes</span>
             </p>
             <p className="mt-2 text-xs text-taupe">No reviews yet</p>
