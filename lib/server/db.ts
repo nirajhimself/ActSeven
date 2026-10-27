@@ -1,10 +1,19 @@
 import "server-only";
+import net from "node:net";
 import postgres from "postgres";
 import { startDbWatchdog } from "./db-watchdog";
 
 declare global {
   var __actViiSql: postgres.Sql | undefined;
 }
+
+// The database host resolves to several addresses, and Node gives each
+// connection attempt only 250 ms before trying the next. A TCP connect to a
+// distant database takes longer (~400–500 ms to Sydney from India), so every
+// attempt but the last was cut off: each new connection lost ~0.6 s, and failed
+// outright ("Can't reach database server", P1001) when the last address was
+// slow too. Applies to both postgres.js and Prisma's node-postgres pool.
+if (net.getDefaultAutoSelectFamilyAttemptTimeout() < 2_500) net.setDefaultAutoSelectFamilyAttemptTimeout(2_500);
 
 export function isDatabaseConfigured() {
   const url = process.env.DATABASE_URL;
