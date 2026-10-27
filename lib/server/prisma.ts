@@ -29,8 +29,9 @@ export function prisma() {
       // Probe after 10 s: left unset, the OS default applies (2 hours on Windows).
       keepAlive: true,
       keepAliveInitialDelayMillis: 10_000,
-      idleTimeoutMillis: 10_000,
-      maxLifetimeSeconds: 600,
+      // Connections are slow to open (see lib/server/db.ts): keep them open between visits.
+      idleTimeoutMillis: 600_000,
+      maxLifetimeSeconds: 1_800,
       connectionTimeoutMillis: 20_000,
       // Give up on a query that gets no answer (e.g. a socket the network
       // dropped) instead of waiting forever.

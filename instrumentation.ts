@@ -16,12 +16,14 @@ export async function register() {
   const { isDatabaseConfigured } = await import("./lib/server/db");
   if (isDatabaseConfigured()) {
     (await import("./lib/server/db-watchdog")).startDbWatchdog();
-    // Open a connection in each client now, so the first visitor doesn't wait
-    // for it (several seconds to a distant database). Failures are harmless.
-    const { db } = await import("./lib/server/db");
+    // Open each client's connections now, so visitors don't wait for them
+    // (several seconds each to a distant database). Failures are harmless.
+    const { db, poolSize } = await import("./lib/server/db");
     const { prisma } = await import("./lib/server/prisma");
-    db()`select 1`.catch(() => {});
-    prisma().$queryRaw`select 1`.catch(() => {});
+    for (let i = 0; i < poolSize(); i++) {
+      db()`select 1`.catch(() => {});
+      prisma().$queryRaw`select 1`.catch(() => {});
+    }
   }
 }
 

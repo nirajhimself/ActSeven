@@ -34,9 +34,12 @@ export function connectionOptions(url: string): postgres.Options<Record<string, 
   const local = hostname === "localhost" || hostname === "127.0.0.1";
   return {
     max: poolSize(),
-    idle_timeout: 20,
+    // Opening a connection to a distant database takes several seconds
+    // (~4.5 s to Sydney, vs ~0.4 s for a query), so keep them open between
+    // visits. Keep-alives (below) and the watchdog catch ones that die.
+    idle_timeout: 60 * 10,
     // Recycle connections and give up on hung connects instead of waiting forever.
-    max_lifetime: 60 * 10,
+    max_lifetime: 60 * 30,
     connect_timeout: 20,
     // Probe idle sockets after 10 s (default 60) so a connection silently
     // dropped by the network or a distant pooler is noticed quickly.
